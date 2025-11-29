@@ -99,6 +99,7 @@ _3 + 1 Steps to run GraphKer Tool_
    - Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once on your machine.
    - From the project root run `uv sync`. This creates a `.venv` managed by uv and installs: xmltodict, neo4j, requests, beautifulsoup4.
    - Whenever you need to execute the tool, use `uv run` so the managed environment is activated automatically.    
+   - System requirement: the CAPEC download step calls `dos2unix`. On the provided devcontainer this is preinstalled via the common-utils feature; on other systems install it manually (e.g. `sudo apt-get install -y dos2unix`).    
 
 ### **4) Install Applications Created for Neo4j**
    - There are several applications created especially for Neo4j that you can use for better experience and work.

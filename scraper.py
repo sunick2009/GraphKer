@@ -297,16 +297,32 @@ def select_nested_array_by_path(json_data, path):
     return parsed_json
 
 def run_dos2unix(file):
-    try:
-        dos2unix_command = f'dos2unix {file}'
-        print("Executing command:", dos2unix_command)
+    print(f"Normalizing line endings for {file}")
+    dos2unix_binary = shutil.which("dos2unix")
 
-        process = subprocess.run(['dos2unix', file], capture_output=True, text=True, check=True)
-        if process.returncode == 0:
-            print(f"File {file} transformed to unix format")
-        else:
-            raise RuntimeError(f"Error running dos2unix command: {process.stderr.strip()}")
-    except FileNotFoundError:
-        raise RuntimeError("dos2unix command not found. Make sure jq is installed on your system.")
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Error running dos2unix command. Make sure dos2unix is installed and check your file. Error: {e}")
+    if dos2unix_binary:
+        try:
+            process = subprocess.run([dos2unix_binary, file], capture_output=True, text=True, check=True)
+            if process.returncode == 0:
+                print(f"File {file} transformed to unix format")
+            else:
+                raise RuntimeError(f"Error running dos2unix command: {process.stderr.strip()}")
+            return
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Error running dos2unix command. Make sure dos2unix is installed and check your file. Error: {e}") from e
+        except FileNotFoundError:
+            # Fall back to manual normalization below if the binary disappears mid-run
+            pass
+
+    # Fallback: normalize in Python when dos2unix is unavailable
+    try:
+        with open(file, "rb") as f:
+            content = f.read()
+        normalized = content.replace(b"\r\n", b"\n")
+        with open(file, "wb") as f:
+            f.write(normalized)
+        print(f"File {file} normalized without dos2unix binary")
+    except FileNotFoundError as e:
+        raise RuntimeError(f"File not found for normalization: {file}") from e
+    except OSError as e:
+        raise RuntimeError(f"Failed to normalize line endings for {file}: {e}") from e
