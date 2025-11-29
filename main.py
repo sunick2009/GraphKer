@@ -72,6 +72,7 @@ def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
 
 
 def main():
+    Util.load_env_file()
     # Initialize the parser
     parser = argparse.ArgumentParser(
         description=" +-+-+-+-+-+-+-+-+ \n |G|r|a|p|h|K|e|r| \n +-+-+-+-+-+-+-+-+"

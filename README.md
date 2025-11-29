@@ -133,6 +133,12 @@ Example using the API for both CVE and CPE data:
 NVD_API_KEY=YOUR_KEY python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d /var/lib/neo4j/import/ --nvd-source api
 ```
 
+You can also configure these via a `.env` file (loaded automatically). Copy `.env.example` to `.env` and set:
+
+- `NVD_SOURCE`: `mirror` or `api` (use `api` to fetch CPE data).
+- `NVD_API_KEY`: your NVD 2.0 API key (required when `NVD_SOURCE=api` or for CPE).
+- `NVD_YEARS`: optional comma-separated years or `all` to expand beyond Recent/Modified feeds.
+
 ### **Testing the downloader (no Neo4j required)**
 
 Run the lightweight tests that validate the CVE mirror download and parsing logic:

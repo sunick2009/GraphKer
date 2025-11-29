@@ -3,6 +3,26 @@ import platform
 import shutil
 
 class Util:
+    @staticmethod
+    def load_env_file(path: str = ".env"):
+        """Load simple KEY=VALUE pairs from a .env file into os.environ."""
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path, "r") as env_file:
+                for line in env_file:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    if "=" not in stripped:
+                        continue
+                    key, value = stripped.split("=", 1)
+                    key = key.strip()
+                    value = value.strip().strip('\'"')
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+        except OSError as e:
+            print(f"Warning: could not load .env file at {path}: {e}")
 
     @staticmethod
     def replace_placeholder_with_value(line, files_by_type):
