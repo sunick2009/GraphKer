@@ -16,7 +16,16 @@ from nvd_downloader import NVDSourceConfig
 def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
         nvd_source: str | None = None, nvd_api_key: str | None = None,
         nvd_years: str | None = None):
+    driver = None
     try:
+        # Fail fast if Neo4j is unreachable to avoid doing heavy downloads first.
+        connection_driver = GraphDatabase.driver(url_db, auth=(username, password))
+        try:
+            connection_driver.verify_connectivity()
+            print(f"Connected to Neo4j at {url_db}")
+        finally:
+            connection_driver.close()
+
         start_time = time.time()
 
         import_path = Util.set_import_path(directory)
@@ -62,7 +71,8 @@ def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
 
     except Exception as e:
         print(f"Error occurred: {e}")
-        driver.close()
+        if driver:
+            driver.close()
 
     if neo4jbrowser:
         webbrowser.open("http://localhost:7474")
