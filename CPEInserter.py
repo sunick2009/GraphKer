@@ -41,7 +41,10 @@ class CPEInserter:
 
     # Define which Dataset and Cypher files will be imported on CPE Insertion
     def files_to_insert_cpe(self):
-        listOfFiles = os.listdir(self.import_path + "nist/cpe/splitted/")
+        target_dir = self.import_path + "nist/cpe/splitted/"
+        if not os.path.exists(target_dir):
+            return []
+        listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         cpe_files = []
         for entry in listOfFiles:

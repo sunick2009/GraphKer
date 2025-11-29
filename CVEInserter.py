@@ -43,7 +43,10 @@ class CVEInserter:
 
     # Define which Dataset and Cypher files will be imported on CVE Insertion
     def files_to_insert_cve(self):
-        listOfFiles = os.listdir(self.import_path + "nist/cve/splitted/")
+        target_dir = self.import_path + "nist/cve/splitted/"
+        if not os.path.exists(target_dir):
+            return []
+        listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         cve_files = []
         for entry in listOfFiles:

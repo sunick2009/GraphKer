@@ -96,8 +96,8 @@ _3 + 1 Steps to run GraphKer Tool_
        ```
        
 ### **3) Install requirements.txt**
-   - GraphKer Uses: xmltodict, neo4j, requests, beautifulsoup4
-   - ``` pip install -r requirements.txt ```    
+   - GraphKer Uses: xmltodict, neo4j, requests, beautifulsoup4, pytest
+   - ``` pip install -r requirements.txt ```
 
 ### **4) Install Applications Created for Neo4j**
    - There are several applications created especially for Neo4j that you can use for better experience and work.
@@ -116,7 +116,29 @@ python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d IMPORT_PATH -b y
 python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d IMPORT_PATH -g y
 // Default Run Example in Ubuntu
 sudo python3 main.py -u BOLT_URL -n USERNAME -p PASSWORD -d /var/lib/neo4j/import/
-``` 
+```
+
+### **NVD data source configuration**
+
+GraphKer now supports the modern NVD 2.0 feeds. By default, CVE data is downloaded from the FKIE-CAD GitHub mirror, which works without authentication. Optional CLI flags and environment variables control the source:
+
+- `--nvd-source` / `NVD_SOURCE`: `mirror` (default) or `api`.
+- `--nvd-api-key` / `NVD_API_KEY`: API key for the NVD 2.0 API (required for CPE data or when using `--nvd-source=api`).
+- `--nvd-years` / `NVD_YEARS`: comma separated years (e.g. `2023,2024`) or `all` to download full-year feeds in addition to the Recent/Modified feeds.
+
+Example using the API for both CVE and CPE data:
+
+```
+NVD_API_KEY=YOUR_KEY python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d /var/lib/neo4j/import/ --nvd-source api
+```
+
+### **Testing the downloader (no Neo4j required)**
+
+Run the lightweight tests that validate the CVE mirror download and parsing logic:
+
+```
+pytest
+```
 
 _Default Bolt URL for Neo4j: bolt://localhost:7687_
 
@@ -133,7 +155,7 @@ You can check out an existing example of the graph database that GraphKer create
 
 #
 
-You can access the CVE and CPE Datasets in National Vulnerability Database by NIST (https://nvd.nist.gov/vuln/data-feeds), CWE Dataset in MITRE (https://cwe.mitre.org/data/downloads.html) and CAPEC Dataset in MITRE (https://capec.mitre.org/data/downloads.html).
+You can access the CVE datasets through the FKIE-CAD mirror of the National Vulnerability Database (https://github.com/fkie-cad/nvd-json-data-feeds), CWE Dataset in MITRE (https://cwe.mitre.org/data/downloads.html) and CAPEC Dataset in MITRE (https://capec.mitre.org/data/downloads.html). CPE data now uses the official NVD 2.0 API when a key is provided.
 
 # 
 --Search, Export Data and Analytics, Enrich your Skills--

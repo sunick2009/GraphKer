@@ -1,4 +1,5 @@
 import argparse
+import os
 import webbrowser
 from neo4j import GraphDatabase
 import scraper
@@ -9,16 +10,31 @@ from CWEInserter import CWEInserter
 from CVEInserter import CVEInserter
 from CAPECInserter import CAPECInserter
 from DatabaseUtil import DatabaseUtil
+from nvd_downloader import NVDSourceConfig
 
 # Define the functions that will be running
-def run(url_db, username, password, directory, neo4jbrowser, graphlytic):
+def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
+        nvd_source: str | None = None, nvd_api_key: str | None = None,
+        nvd_years: str | None = None):
     try:
         start_time = time.time()
 
         import_path = Util.set_import_path(directory)
 
+        nvd_config = NVDSourceConfig.from_env()
+        if nvd_source:
+            nvd_config.source = nvd_source
+        if nvd_api_key:
+            nvd_config.api_key = nvd_api_key
+        if nvd_years:
+            if nvd_years.strip().lower() == "all":
+                current_year = time.gmtime().tm_year
+                nvd_config.years = list(range(1999, current_year + 1))
+            else:
+                nvd_config.years = [int(year) for year in nvd_years.split(',') if year.strip().isdigit()]
+
         Util.clear_directory(import_path)
-        scraper.download_datasets(import_path)
+        scraper.download_datasets(import_path, nvd_config)
 
         Util.copy_files_cypher_script(import_path)
 
@@ -83,6 +99,13 @@ def main():
                         help="Press y or Y to open neo4jbrowser after the insertion of elements in your graph database.")
     parser.add_argument('-g', '--graphlytic', choices=['y', 'Y'],
                         help="Press y or Y to open Graphlytic app after the insertion of elements in your graph database.")
+    parser.add_argument('--nvd-source', choices=['mirror', 'api'],
+                        default=os.getenv('NVD_SOURCE', 'mirror'),
+                        help="Select NVD data source. Default is mirror (FKIE-CAD GitHub feeds).")
+    parser.add_argument('--nvd-api-key', default=os.getenv('NVD_API_KEY'),
+                        help="NVD 2.0 API key used when --nvd-source=api or when environment requires it.")
+    parser.add_argument('--nvd-years', default=os.getenv('NVD_YEARS'),
+                        help="Comma separated years to fetch from mirror/API (e.g. 2023,2024) or 'all'. Defaults to recent feeds only.")
 
     args = parser.parse_args()
     if args.neo4jbrowser == "y" or args.neo4jbrowser == "Y":
@@ -94,7 +117,9 @@ def main():
     else:
         graphlytic_open = False
     run(args.urldb, args.username, args.password,
-        args.directory, neo4jbrowser_open, graphlytic_open)
+        args.directory, neo4jbrowser_open, graphlytic_open,
+        nvd_source=args.nvd_source, nvd_api_key=args.nvd_api_key,
+        nvd_years=args.nvd_years)
     return
 
 

@@ -1,71 +1,70 @@
 import os
-import requests
-import zipfile
-from bs4 import BeautifulSoup
 import platform
-from circuitbreaker import circuit
+import zipfile
 import json
 import xmltodict
-import xml.etree.ElementTree as ET
 import fnmatch
 import subprocess
+
+import requests
+from bs4 import BeautifulSoup
+from circuitbreaker import circuit
+
+from nvd_downloader import (
+    NVDMirrorClient,
+    NVDApiClient,
+    NVDSourceConfig,
+    write_cpe_batches,
+    write_cve_batches,
+)
 
 
 MAX_RETRIES = 5
 
-def download_files_cve(import_path):
-    url = 'https://nvd.nist.gov/vuln/data-feeds'
-    root = 'https://nvd.nist.gov/'
-    r = requests.get(url)
-    soup = BeautifulSoup(r.text, 'html.parser')
-    all_hrfs = soup.find_all('a')
-    all_links = [
-        link.get('href') for link in all_hrfs
-    ]
-    zip_files = [
-        dl for dl in all_links if dl and '.json.zip' in dl and 'nvdcve' in dl
-    ]
-    download_folder = import_path + "nist/cve/"
-    extract_dir = import_path + "nist/cve/"
+def download_files_cve(import_path, nvd_config: NVDSourceConfig | None = None):
+    """Download CVE data using the configured NVD source.
 
-    # Download and Unzip the files
+    The mirror mode (default) uses the FKIE-CAD GitHub releases and works
+    without authentication. API mode relies on the official NVD 2.0 API
+    and the optional ``NVD_API_KEY``.
+    """
+
+    config = nvd_config or NVDSourceConfig.from_env()
+    cve_output_dir = os.path.join(import_path, "nist", "cve")
+    os.makedirs(cve_output_dir, exist_ok=True)
+
     print('\nUpdating the Database with the latest CVE Files...')
-    for zip_file in zip_files:
-        print("Zip file: ", zip_file)
-        full_url = root + zip_file
-        zip_file_name = os.path.basename(zip_file)
-        download_file_to_path(full_url, download_folder, zip_file_name)
-        unzip_files_to_directory(download_folder, extract_dir, zip_file_name)
+    if config.source == "mirror":
+        client = NVDMirrorClient()
+        cve_items = client.iter_cve_items(years=config.years)
+    else:
+        client = NVDApiClient(config.api_key)
+        cve_items = client.iter_cve_items()
 
-    transform_xml_files_to_json(extract_dir)
-    transform_big_json_files_to_multiple_json_files(extract_dir, 'cve','CVE_Items')
+    write_cve_batches(cve_items, cve_output_dir)
 
-def download_files_cpe(import_path):
-    url = 'https://nvd.nist.gov/vuln/data-feeds'
-    root = 'https://nvd.nist.gov/'
-    r = requests.get(url)
-    soup = BeautifulSoup(r.text, 'html.parser')
-    all_hrfs = soup.find_all('a')
-    all_links = [
-        link.get('href') for link in all_hrfs
-    ]
-    zip_files = [
-        dl for dl in all_links if dl and '.json.zip' in dl and 'nvdcpematch' in dl
-    ]
-    download_folder = import_path + "nist/cpe/"
-    extract_dir = import_path + "nist/cpe/"
-#
-    # Download and Unzip the files
-    print('\nUpdating the Database with the latest CVE Files...')
-    for zip_file in zip_files:
-        full_url = root + zip_file
-        zip_file_name = os.path.basename(zip_file)
-        # 5 attempts to download and unzip the file correctly
-        download_file_to_path(full_url, download_folder, zip_file_name)
-        unzip_files_to_directory(download_folder, extract_dir, zip_file_name)
-#
-    transform_xml_files_to_json(extract_dir)
-    transform_big_json_files_to_multiple_json_files(extract_dir, 'cpe','matches')
+def download_files_cpe(import_path, nvd_config: NVDSourceConfig | None = None):
+    """Download CPE data from the NVD API.
+
+    CPE feeds are no longer mirrored; when no API key is provided the
+    function exits gracefully so that CVE processing can continue.
+    """
+
+    config = nvd_config or NVDSourceConfig.from_env()
+    if config.source != "api":
+        print("\nCPE mirror feeds are unavailable. Provide NVD_API_KEY and set NVD_SOURCE=api to import CPE data.")
+        return
+
+    cpe_output_dir = os.path.join(import_path, "nist", "cpe")
+    os.makedirs(cpe_output_dir, exist_ok=True)
+
+    if not config.api_key:
+        print("\nNVD_API_KEY not provided; skipping CPE download.")
+        return
+
+    print('\nUpdating the Database with the latest CPE Files via NVD API...')
+    client = NVDApiClient(config.api_key)
+    write_cpe_batches(client.iter_cpe_items(), cpe_output_dir)
 
 def download_files_cwe(import_path):
     url = 'https://cwe.mitre.org/data/archive.html'
@@ -132,9 +131,10 @@ def download_files_capec(import_path):
     transform_big_json_files_to_multiple_json_files(extract_dir, 'capec_view','Attack_Pattern_Catalog.Views.View')
 
 
-def download_datasets(import_path):
-    download_files_cve(import_path)
-    download_files_cpe(import_path)
+def download_datasets(import_path, nvd_config: NVDSourceConfig | None = None):
+    config = nvd_config or NVDSourceConfig.from_env()
+    download_files_cve(import_path, config)
+    download_files_cpe(import_path, config)
     download_files_cwe(import_path)
     download_files_capec(import_path)
 
