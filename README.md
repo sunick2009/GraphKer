@@ -95,9 +95,10 @@ _3 + 1 Steps to run GraphKer Tool_
        dbms.memory.pagecache.size=512M
        ```
        
-### **3) Install requirements.txt**
-   - GraphKer Uses: xmltodict, neo4j, requests, beautifulsoup4, pytest
-   - ``` pip install -r requirements.txt ```
+### **3) Install dependencies with uv**
+   - Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once on your machine.
+   - From the project root run `uv sync`. This creates a `.venv` managed by uv and installs: xmltodict, neo4j, requests, beautifulsoup4.
+   - Whenever you need to execute the tool, use `uv run` so the managed environment is activated automatically.    
 
 ### **4) Install Applications Created for Neo4j**
    - There are several applications created especially for Neo4j that you can use for better experience and work.
@@ -107,15 +108,15 @@ _3 + 1 Steps to run GraphKer Tool_
 
 # **Run GraphKer**
 
-```
-// Default
-python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d IMPORT_PATH
-// Run and Open Neo4j Browser
-python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d IMPORT_PATH -b y
-// Run and Open Graphlytic App
-python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d IMPORT_PATH -g y
-// Default Run Example in Ubuntu
-sudo python3 main.py -u BOLT_URL -n USERNAME -p PASSWORD -d /var/lib/neo4j/import/
+```bash
+# Default
+uv run python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d IMPORT_PATH
+# Run and Open Neo4j Browser
+uv run python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d IMPORT_PATH -b y
+# Run and Open Graphlytic App
+uv run python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d IMPORT_PATH -g y
+# Default Run Example in Ubuntu
+sudo uv run python main.py -u BOLT_URL -n USERNAME -p PASSWORD -d /var/lib/neo4j/import/
 ```
 
 ### **NVD data source configuration**
