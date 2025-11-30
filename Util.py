@@ -1,6 +1,8 @@
 import os
 import platform
 import shutil
+import sys
+from loguru import logger
 
 class Util:
     @staticmethod
@@ -22,7 +24,14 @@ class Util:
                     if key and key not in os.environ:
                         os.environ[key] = value
         except OSError as e:
-            print(f"Warning: could not load .env file at {path}: {e}")
+            logger.warning(f"Could not load .env file at {path}: {e}")
+
+    @staticmethod
+    def setup_logger():
+        """Configure loguru once for the application."""
+        logger.remove()
+        log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+        logger.add(sys.stdout, level=log_level, format="[{time:YYYY-MM-DD HH:mm:ss}] {level:<8} {message}")
 
     @staticmethod
     def replace_placeholder_with_value(line, files_by_type):
@@ -42,6 +51,11 @@ class Util:
     # Clear Import Directory
     def clear_directory(path):
         try:
+            if not os.path.exists(path):
+                os.makedirs(path, exist_ok=True)
+                logger.info(f"Created import directory: {path}")
+                return
+
             # List all files and directories inside the specified directory
             directory_contents = os.listdir(path)
 
@@ -53,29 +67,36 @@ class Util:
                 elif os.path.isdir(item_path):
                     shutil.rmtree(item_path)
 
-            print(f"Contents of '{path}' have been deleted.")
+            logger.info(f"Contents of '{path}' have been deleted.")
         except FileNotFoundError:
-            print(f"Directory not found: {path}")
+            logger.warning(f"Directory not found: {path}")
         except Exception as e:
-            print(f"Error occurred: {e}")
+            logger.error(f"Error occurred while clearing directory {path}: {e}")
     
     # Set Import Directory
     def set_import_path(directory):
+        if not directory:
+            raise ValueError("Import path is required.")
+
         current_os = platform.system()
-        if (current_os == "Linux" or current_os == "Darwin"):
-            return directory
+        if current_os in ("Linux", "Darwin"):
+            return os.path.abspath(directory)
         elif current_os == "Windows":
-            return directory.replace("\\", "\\\\") + "\\\\"
+            normalized = directory.replace("\\", "\\\\")
+            return os.path.abspath(normalized) + "\\\\"
 
 
     # Copy Cypher Script Schema Files to Import Path
     def copy_files_cypher_script(to_path):
-        current_path = os.getcwd()
-        current_os = platform.system()
-        if (current_os == "Linux" or current_os == "Darwin"):
-            current_path += "/CypherScripts/"
-        elif current_os == "Windows":
-            current_path += "\CypherScripts\\"
+        current_path = os.path.join(os.getcwd(), "CypherScripts")
+        if not os.path.isdir(current_path):
+            logger.error(f"CypherScripts directory not found at {current_path}")
+            return
 
-        shutil.copy2(current_path + "ConstraintsIndexes.cypher", to_path)
-        shutil.copy2(current_path + "ClearConstraintsIndexes.cypher", to_path)
+        os.makedirs(to_path, exist_ok=True)
+        for name in os.listdir(current_path):
+            if name.endswith(".cypher"):
+                src = os.path.join(current_path, name)
+                dst = os.path.join(to_path, name)
+                shutil.copy2(src, dst)
+                logger.debug(f"Copied Cypher script {name} to import path")

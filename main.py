@@ -4,6 +4,7 @@ import webbrowser
 from neo4j import GraphDatabase
 import scraper
 import time
+from loguru import logger
 from Util import Util
 from CPEInserter import CPEInserter
 from CWEInserter import CWEInserter
@@ -15,14 +16,15 @@ from nvd_downloader import NVDSourceConfig
 # Define the functions that will be running
 def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
         nvd_source: str | None = None, nvd_api_key: str | None = None,
-        nvd_years: str | None = None):
+        nvd_years: str | None = None, reuse_downloads: bool = False,
+        skip_cpe: bool = False):
     driver = None
     try:
         # Fail fast if Neo4j is unreachable to avoid doing heavy downloads first.
         connection_driver = GraphDatabase.driver(url_db, auth=(username, password))
         try:
             connection_driver.verify_connectivity()
-            print(f"Connected to Neo4j at {url_db}")
+            logger.info(f"Connected to Neo4j at {url_db}")
         finally:
             connection_driver.close()
 
@@ -42,8 +44,11 @@ def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
             else:
                 nvd_config.years = [int(year) for year in nvd_years.split(',') if year.strip().isdigit()]
 
-        Util.clear_directory(import_path)
-        scraper.download_datasets(import_path, nvd_config)
+        if reuse_downloads:
+            logger.info("Reusing existing downloaded datasets (skipping clear/download).")
+        else:
+            Util.clear_directory(import_path)
+            scraper.download_datasets(import_path, nvd_config, skip_cpe=skip_cpe)
 
         Util.copy_files_cypher_script(import_path)
 
@@ -57,7 +62,8 @@ def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
 
         databaseUtil.clear()
         databaseUtil.schema_script()
-        cpeInserter.cpe_insertion()
+        if not skip_cpe:
+            cpeInserter.cpe_insertion()
         capecInserter.capec_insertion()
         cveInserter.cve_insertion()
         cweInserter.cwe_insertion()
@@ -67,10 +73,10 @@ def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
         end_time = time.time()
 
         execution_time = end_time - start_time
-        print(f"Import finished in: {execution_time:.6f} seconds")
+        logger.info(f"Import finished in: {execution_time:.6f} seconds")
 
     except Exception as e:
-        print(f"Error occurred: {e}")
+        logger.exception(f"Error occurred: {e}")
         if driver:
             driver.close()
 
@@ -83,6 +89,7 @@ def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
 
 def main():
     Util.load_env_file()
+    Util.setup_logger()
     # Initialize the parser
     parser = argparse.ArgumentParser(
         description=" +-+-+-+-+-+-+-+-+ \n |G|r|a|p|h|K|e|r| \n +-+-+-+-+-+-+-+-+"
@@ -117,6 +124,10 @@ def main():
                         help="NVD 2.0 API key used when --nvd-source=api or when environment requires it.")
     parser.add_argument('--nvd-years', default=os.getenv('NVD_YEARS'),
                         help="Comma separated years to fetch from mirror/API (e.g. 2023,2024) or 'all'. Defaults to recent feeds only.")
+    parser.add_argument('--reuse-downloads', action='store_true',
+                        help="Reuse existing downloaded datasets in the import directory (skip clearing and re-downloading).")
+    parser.add_argument('--skip-cpe', action='store_true',
+                        help="Skip CPE download and insertion (useful when API key/rate limits are problematic).")
 
     args = parser.parse_args()
     if args.neo4jbrowser == "y" or args.neo4jbrowser == "Y":
@@ -130,7 +141,8 @@ def main():
     run(args.urldb, args.username, args.password,
         args.directory, neo4jbrowser_open, graphlytic_open,
         nvd_source=args.nvd_source, nvd_api_key=args.nvd_api_key,
-        nvd_years=args.nvd_years)
+        nvd_years=args.nvd_years, reuse_downloads=args.reuse_downloads,
+        skip_cpe=args.skip_cpe)
     return
 
 
