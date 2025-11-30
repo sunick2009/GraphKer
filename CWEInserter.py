@@ -1,7 +1,10 @@
 import os
 import fnmatch
+import json
 from neo4j import exceptions
 from loguru import logger
+
+BATCH_SIZE = 500
 
 class CWEInserter:
 
@@ -86,8 +89,15 @@ class CWEInserter:
         logger.info(f"CWE Files: {file} insertion completed.")
 
     # Configure CWE Files and CWE Cypher Script for insertion
-    def cwe_insertion(self):
+    def cwe_insertion(self, direct_ingest: bool = False):
         logger.info("Inserting CWE Files to Database...")
+        if direct_ingest:
+            self.direct_insert_references()
+            self.direct_insert_weaknesses()
+            self.direct_insert_categories()
+            self.direct_insert_views()
+            return
+
         files = self.files_to_insert_cwe_reference()
         for f in files:
             logger.info(f'Inserting {f}')
@@ -171,3 +181,155 @@ class CWEInserter:
                     continue
 
         return view_files
+
+    # ---------------- Direct ingestion helpers ----------------
+    def _load_json(self, rel_path):
+        path = os.path.join(self.import_path, rel_path)
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _chunked(self, items, size=BATCH_SIZE):
+        for i in range(0, len(items), size):
+            yield items[i:i+size]
+
+    def direct_insert_references(self):
+        target_dir = os.path.join(self.import_path, "mitre_cwe", "splitted")
+        files = [f for f in os.listdir(target_dir) if f.startswith("cwe_reference") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CWE reference files found for direct ingest.")
+            return
+        cypher = """
+        UNWIND $batch AS ref
+        MERGE (r:External_Reference_CWE {Reference_ID: ref.Reference_ID})
+          SET r.Author = ref.Author,
+              r.Title = ref.Title,
+              r.Edition = ref.Edition,
+              r.URL = ref.URL,
+              r.Publication_Year = ref.Publication_Year,
+              r.Publisher = ref.Publisher
+        """
+        with self.driver.session() as session:
+            for fname in files:
+                data = self._load_json(os.path.join("mitre_cwe", "splitted", fname))
+                for batch in self._chunked(data):
+                    session.run(cypher, batch=batch)
+        logger.info("CWE references inserted via direct ingest.")
+
+    def direct_insert_weaknesses(self):
+        target_dir = os.path.join(self.import_path, "mitre_cwe", "splitted")
+        files = [f for f in os.listdir(target_dir) if f.startswith("cwe_weakness") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CWE weakness files found for direct ingest.")
+            return
+
+        def simplify(item):
+            related = item.get("Related_Weaknesses", {}).get("Related_Weakness", [])
+            if isinstance(related, dict):
+                related = [related]
+            rel_ids = [rw.get("CWE_ID") for rw in related if rw.get("CWE_ID")]
+
+            rel_capec = item.get("Related_Attack_Patterns", {}).get("Related_Attack_Pattern", [])
+            if isinstance(rel_capec, dict):
+                rel_capec = [rel_capec]
+            rel_capec_ids = [rc.get("CAPEC_ID") for rc in rel_capec if rc.get("CAPEC_ID")]
+
+            refs = item.get("References", {}).get("Reference", [])
+            if isinstance(refs, dict):
+                refs = [refs]
+            ref_ids = [r.get("External_Reference_ID") for r in refs if r.get("External_Reference_ID")]
+
+            return {
+                "id": item.get("ID"),
+                "name": item.get("Name"),
+                "abstraction": item.get("Abstraction"),
+                "structure": item.get("Structure"),
+                "status": item.get("Status"),
+                "description": item.get("Description"),
+                "related_weakness_ids": rel_ids,
+                "related_capec_ids": rel_capec_ids,
+                "reference_ids": ref_ids,
+            }
+
+        cypher = """
+        UNWIND $batch AS w
+        WITH w WHERE w.id IS NOT NULL
+        MERGE (c:CWE {Name: 'CWE-' + w.id})
+          SET c.Extended_Name = w.name,
+              c.Abstraction = w.abstraction,
+              c.Structure = w.structure,
+              c.Status = w.status,
+              c.Description = w.description
+        FOREACH (rid IN w.reference_ids |
+          MERGE (r:External_Reference_CWE {Reference_ID: rid})
+          MERGE (c)-[:hasExternal_Reference]->(r))
+        FOREACH (rw IN w.related_weakness_ids |
+          MERGE (cw:CWE {Name: 'CWE-' + rw})
+          MERGE (c)-[:Related_Weakness]->(cw))
+        FOREACH (cap IN w.related_capec_ids |
+          MERGE (cp:CAPEC {Name: 'CAPEC-' + cap})
+          MERGE (c)-[:RelatedAttackPattern]->(cp))
+        """
+
+        with self.driver.session() as session:
+            for fname in files:
+                raw = self._load_json(os.path.join("mitre_cwe", "splitted", fname))
+                simplified = [simplify(item) for item in raw]
+                for batch in self._chunked(simplified):
+                    session.run(cypher, batch=batch)
+        logger.info("CWE weaknesses inserted via direct ingest.")
+
+    def direct_insert_categories(self):
+        target_dir = os.path.join(self.import_path, "mitre_cwe", "splitted")
+        files = [f for f in os.listdir(target_dir) if f.startswith("cwe_category") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CWE category files found for direct ingest.")
+            return
+        cypher = """
+        UNWIND $batch AS cat
+        WITH cat WHERE cat.id IS NOT NULL
+        MERGE (c:CWE_CATEGORY {ID: cat.id})
+          SET c.Name = cat.name,
+              c.Status = cat.status,
+              c.Summary = cat.summary
+        """
+        with self.driver.session() as session:
+            for fname in files:
+                raw = self._load_json(os.path.join("mitre_cwe", "splitted", fname))
+                simplified = [{"id": i.get("ID"), "name": i.get("Name"), "status": i.get("Status"), "summary": i.get("Summary")} for i in raw]
+                for batch in self._chunked(simplified):
+                    session.run(cypher, batch=batch)
+        logger.info("CWE categories inserted via direct ingest.")
+
+    def direct_insert_views(self):
+        target_dir = os.path.join(self.import_path, "mitre_cwe", "splitted")
+        files = [f for f in os.listdir(target_dir) if f.startswith("cwe_view") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CWE view files found for direct ingest.")
+            return
+        cypher = """
+        UNWIND $batch AS v
+        WITH v WHERE v.id IS NOT NULL
+        MERGE (view:CWE_VIEW {ID: v.id})
+          SET view.Name = v.name,
+              view.Type = v.type,
+              view.Status = v.status,
+              view.Objective = v.objective
+        """
+        with self.driver.session() as session:
+            for fname in files:
+                raw = self._load_json(os.path.join("mitre_cwe", "splitted", fname))
+                simplified = []
+                for i in raw:
+                    obj = i.get("Objective")
+                    if isinstance(obj, dict):
+                        obj = str(obj.get("xhtml:p") or obj)
+                    simplified.append({
+                        "id": i.get("ID"),
+                        "name": i.get("Name"),
+                        "type": i.get("Type"),
+                        "status": i.get("Status"),
+                        "objective": obj if obj is None or isinstance(obj, str) else str(obj),
+                    })
+                for batch in self._chunked(simplified):
+                    session.run(cypher, batch=batch)
+        logger.info("CWE views inserted via direct ingest.")

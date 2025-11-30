@@ -1,7 +1,10 @@
 import os
 import fnmatch
+import json
 from neo4j import exceptions
 from loguru import logger
+
+BATCH_SIZE = 500
 
 class CAPECInserter:
 
@@ -88,8 +91,15 @@ class CAPECInserter:
         logger.info(f"CAPEC Files: {file} insertion completed.")
 
     # Configure CAPEC Files and CAPEC Cypher Script for insertion
-    def capec_insertion(self):
+    def capec_insertion(self, direct_ingest: bool = False):
         logger.info("Inserting CAPEC Files to Database...")
+        if direct_ingest:
+            self.direct_insert_references()
+            self.direct_insert_attack_patterns()
+            self.direct_insert_categories()
+            self.direct_insert_views()
+            return
+
         files = self.files_to_insert_capec_reference()
         for f in files:
             logger.info(f'Inserting {f}')
@@ -169,3 +179,127 @@ class CAPECInserter:
                     continue
 
         return view_files
+
+    # ---------------- Direct ingestion helpers ----------------
+    def _load_json(self, rel_path):
+        path = os.path.join(self.import_path, rel_path)
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _chunked(self, items, size=BATCH_SIZE):
+        for i in range(0, len(items), size):
+            yield items[i:i+size]
+
+    def direct_insert_references(self):
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        files = [f for f in os.listdir(target_dir) if f.startswith("capec_reference") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CAPEC reference files found for direct ingest.")
+            return
+        cypher = """
+        UNWIND $batch AS ref
+        MERGE (r:External_Reference_ID {Reference_ID: ref.Reference_ID})
+          SET r.Author = ref.Author,
+              r.Title = ref.Title,
+              r.Publication_Year = ref.Publication_Year,
+              r.Publication_Month = ref.Publication_Month,
+              r.Publisher = ref.Publisher
+        """
+        with self.driver.session() as session:
+            for fname in files:
+                data = self._load_json(os.path.join("mitre_capec", "splitted", fname))
+                for batch in self._chunked(data):
+                    session.run(cypher, batch=batch)
+        logger.info("CAPEC references inserted via direct ingest.")
+
+    def direct_insert_attack_patterns(self):
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        files = [f for f in os.listdir(target_dir) if f.startswith("capec_attack_pattern") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CAPEC attack pattern files found for direct ingest.")
+            return
+
+        def simplify(item):
+            rel_w = item.get("Related_Weaknesses", {}).get("Related_Weakness", [])
+            if isinstance(rel_w, dict):
+                rel_w = [rel_w]
+            rel_w_ids = [rw.get("CWE_ID") for rw in rel_w if rw.get("CWE_ID")]
+            desc = item.get("Description")
+            if isinstance(desc, dict):
+                desc = str(desc.get("xhtml:p") or desc)
+            return {
+                "id": item.get("ID"),
+                "name": item.get("Name"),
+                "abstraction": item.get("Abstraction"),
+                "status": item.get("Status"),
+                "description": desc if desc is None or isinstance(desc, str) else str(desc),
+                "likelihood": item.get("Likelihood_Of_Attack"),
+                "severity": item.get("Typical_Severity"),
+                "related_weakness_ids": rel_w_ids,
+            }
+
+        cypher = """
+        UNWIND $batch AS ap
+        WITH ap WHERE ap.id IS NOT NULL
+        MERGE (c:CAPEC {Name: 'CAPEC-' + ap.id})
+          SET c.Title = ap.name,
+              c.Abstraction = ap.abstraction,
+              c.Status = ap.status,
+              c.Description = ap.description,
+              c.Likelihood_Of_Attack = ap.likelihood,
+              c.Typical_Severity = ap.severity
+        FOREACH (cw IN ap.related_weakness_ids |
+          MERGE (w:CWE {Name: 'CWE-' + cw})
+          MERGE (c)-[:Related_Weakness]->(w))
+        """
+        with self.driver.session() as session:
+            for fname in files:
+                raw = self._load_json(os.path.join("mitre_capec", "splitted", fname))
+                simplified = [simplify(item) for item in raw]
+                for batch in self._chunked(simplified):
+                    session.run(cypher, batch=batch)
+        logger.info("CAPEC attack patterns inserted via direct ingest.")
+
+    def direct_insert_categories(self):
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        files = [f for f in os.listdir(target_dir) if f.startswith("capec_category") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CAPEC category files found for direct ingest.")
+            return
+        cypher = """
+        UNWIND $batch AS cat
+        WITH cat WHERE cat.id IS NOT NULL
+        MERGE (c:CAPEC_CATEGORY {ID: cat.id})
+          SET c.Name = cat.name,
+              c.Status = cat.status,
+              c.Description = cat.description
+        """
+        with self.driver.session() as session:
+            for fname in files:
+                raw = self._load_json(os.path.join("mitre_capec", "splitted", fname))
+                simplified = [{"id": i.get("ID"), "name": i.get("Name"), "status": i.get("Status"), "description": i.get("Description")} for i in raw]
+                for batch in self._chunked(simplified):
+                    session.run(cypher, batch=batch)
+        logger.info("CAPEC categories inserted via direct ingest.")
+
+    def direct_insert_views(self):
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        files = [f for f in os.listdir(target_dir) if f.startswith("capec_view") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CAPEC view files found for direct ingest.")
+            return
+        cypher = """
+        UNWIND $batch AS v
+        WITH v WHERE v.id IS NOT NULL
+        MERGE (view:CAPEC_VIEW {ID: v.id})
+          SET view.Name = v.name,
+              view.Status = v.status,
+              view.Description = v.description
+        """
+        with self.driver.session() as session:
+            for fname in files:
+                raw = self._load_json(os.path.join("mitre_capec", "splitted", fname))
+                simplified = [{"id": i.get("ID"), "name": i.get("Name"), "status": i.get("Status"), "description": i.get("Description")} for i in raw]
+                for batch in self._chunked(simplified):
+                    session.run(cypher, batch=batch)
+        logger.info("CAPEC views inserted via direct ingest.")

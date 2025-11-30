@@ -17,7 +17,7 @@ from nvd_downloader import NVDSourceConfig
 def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
         nvd_source: str | None = None, nvd_api_key: str | None = None,
         nvd_years: str | None = None, reuse_downloads: bool = False,
-        skip_cpe: bool = False):
+        skip_cpe: bool = False, direct_ingest: bool = False, skip_cve: bool = False):
     driver = None
     try:
         # Fail fast if Neo4j is unreachable to avoid doing heavy downloads first.
@@ -64,9 +64,10 @@ def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
         databaseUtil.schema_script()
         if not skip_cpe:
             cpeInserter.cpe_insertion()
-        capecInserter.capec_insertion()
-        cveInserter.cve_insertion()
-        cweInserter.cwe_insertion()
+        capecInserter.capec_insertion(direct_ingest=direct_ingest)
+        if not skip_cve:
+            cveInserter.cve_insertion()
+        cweInserter.cwe_insertion(direct_ingest=direct_ingest)
 
         driver.close()
 
@@ -128,6 +129,10 @@ def main():
                         help="Reuse existing downloaded datasets in the import directory (skip clearing and re-downloading).")
     parser.add_argument('--skip-cpe', action='store_true',
                         help="Skip CPE download and insertion (useful when API key/rate limits are problematic).")
+    parser.add_argument('--direct-ingest', action='store_true',
+                        help="Insert datasets directly via driver (no apoc.load.json/file import) for supported types (currently CWE/CAPEC).")
+    parser.add_argument('--skip-cve', action='store_true',
+                        help="Skip CVE insertion (useful when Neo4j cannot read local import files).")
 
     args = parser.parse_args()
     if args.neo4jbrowser == "y" or args.neo4jbrowser == "Y":
@@ -142,7 +147,8 @@ def main():
         args.directory, neo4jbrowser_open, graphlytic_open,
         nvd_source=args.nvd_source, nvd_api_key=args.nvd_api_key,
         nvd_years=args.nvd_years, reuse_downloads=args.reuse_downloads,
-        skip_cpe=args.skip_cpe)
+        skip_cpe=args.skip_cpe, direct_ingest=args.direct_ingest,
+        skip_cve=args.skip_cve)
     return
 
 
