@@ -97,8 +97,8 @@ _3 + 1 Steps to run GraphKer Tool_
        
 ### **3) Install dependencies with uv**
    - Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once on your machine.
-   - From the project root run `uv sync`. This creates a `.venv` managed by uv and installs: xmltodict, neo4j, requests, beautifulsoup4.
-   - Whenever you need to execute the tool, use `uv run` so the managed environment is activated automatically.    
+   - From the project root run `uv sync`. This creates a `.venv` managed by uv and installs: xmltodict, neo4j, requests, beautifulsoup4, circuitbreaker.
+   - Whenever you need to execute the tool, use `uv run` so the managed environment is activated automatically.
    - System requirement: the CAPEC download step calls `dos2unix`. On the provided devcontainer this is preinstalled via the common-utils feature; on other systems install it manually (e.g. `sudo apt-get install -y dos2unix`).    
 
 ### **4) Install Applications Created for Neo4j**
@@ -127,6 +127,11 @@ GraphKer now supports the modern NVD 2.0 feeds. By default, CVE data is download
 - `--nvd-source` / `NVD_SOURCE`: `mirror` (default) or `api`.
 - `--nvd-api-key` / `NVD_API_KEY`: API key for the NVD 2.0 API (required for CPE data or when using `--nvd-source=api`).
 - `--nvd-years` / `NVD_YEARS`: comma separated years (e.g. `2023,2024`) or `all` to download full-year feeds in addition to the Recent/Modified feeds.
+- Optional mirrors: override defaults with `NVD_MIRROR_BASE` (CVE mirror base URL) and `NVD_API_BASE` (API base URL) if you host your own endpoints.
+- Rate control (for custom servers): `NVD_RATE_LIMIT` (requests per window), `NVD_RATE_WINDOW` (seconds), `NVD_RATE_DISABLED` (true to disable throttling).
+- Custom API paths: if your API uses different endpoints (e.g. `/nvd/v1/cve` and `/nvd/v1/cpe`), set `NVD_API_CVE_PATH` and `NVD_API_CPE_PATH`.
+- Some custom APIs require a query even for bulk fetches. Use `NVD_CVE_QUERY_KEYWORD` and `NVD_CPE_QUERY_KEYWORD` (default `*`) to populate `keywordSearch` automatically.
+- Page sizes: `NVD_CVE_PAGE_SIZE` (default 2000) and `NVD_CPE_PAGE_SIZE` (default 10000) to match your server limits/performance.
 
 Example using the API for both CVE and CPE data:
 

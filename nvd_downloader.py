@@ -16,14 +16,19 @@ import json
 import lzma
 import os
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Dict, Generator, Iterable, List, Optional
 
 import requests
+from tqdm import tqdm
+from loguru import logger
 
-MIRROR_BASE = "https://github.com/fkie-cad/nvd-json-data-feeds/releases/latest/download"
-API_BASE = "https://services.nvd.nist.gov/rest/json"
+MIRROR_BASE_DEFAULT = "https://github.com/fkie-cad/nvd-json-data-feeds/releases/latest/download"
+API_BASE_DEFAULT = "https://services.nvd.nist.gov/rest/json"
+CVE_API_PATH_DEFAULT = "/cves/2.0"
+CPE_API_PATH_DEFAULT = "/cpes/2.0"
 
 
 @dataclass
@@ -67,6 +72,7 @@ class NVDMirrorClient:
     def __init__(self) -> None:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "GraphKer-NVD-Mirror"})
+        self.mirror_base = os.getenv("NVD_MIRROR_BASE", MIRROR_BASE_DEFAULT)
 
     def iter_cve_items(self, years: Optional[Iterable[int]] = None) -> Generator[Dict, None, None]:
         """Yield CVE items from the mirror, normalizing to legacy structure."""
@@ -77,7 +83,7 @@ class NVDMirrorClient:
                 feed_names.append(f"CVE-{year}.json.xz")
 
         for feed in feed_names:
-            url = f"{MIRROR_BASE}/{feed}"
+            url = f"{self.mirror_base}/{feed}"
             for item in self._download_and_parse_feed(url):
                 yield item
 
@@ -100,40 +106,74 @@ class NVDApiClient:
         if api_key:
             self.session.headers["apiKey"] = api_key
         self.api_key = api_key
+        self.api_base = os.getenv("NVD_API_BASE", API_BASE_DEFAULT)
+        self.cve_path = os.getenv("NVD_API_CVE_PATH", CVE_API_PATH_DEFAULT)
+        self.cpe_path = os.getenv("NVD_API_CPE_PATH", CPE_API_PATH_DEFAULT)
+        self.cve_keyword = os.getenv("NVD_CVE_QUERY_KEYWORD", "*").strip()
+        self.cpe_keyword = os.getenv("NVD_CPE_QUERY_KEYWORD", "*").strip()
+        self.cve_results_per_page = int(os.getenv("NVD_CVE_PAGE_SIZE", "2000"))
+        self.cpe_results_per_page = int(os.getenv("NVD_CPE_PAGE_SIZE", "10000"))
+        self._rate_window = int(os.getenv("NVD_RATE_WINDOW", "30"))  # seconds
+        default_limit = 50 if api_key else 5
+        self._rate_limit = int(os.getenv("NVD_RATE_LIMIT", str(default_limit)))
+        self._disable_rate_limit = os.getenv("NVD_RATE_DISABLED", "false").lower() in ("1", "true", "yes")
+        self._request_timestamps: deque[float] = deque()
 
-    def iter_cve_items(self, start_index: int = 0, results_per_page: int = 2000) -> Generator[Dict, None, None]:
+    def iter_cve_items(self, start_index: int = 0, results_per_page: Optional[int] = None) -> Generator[Dict, None, None]:
         """Iterate through CVE items from the NVD API."""
 
+        page_size = results_per_page or self.cve_results_per_page
         total_results: Optional[int] = None
         index = start_index
         while True:
             payload = {
-                "resultsPerPage": results_per_page,
+                "resultsPerPage": page_size,
                 "startIndex": index,
             }
-            data = self._get("/cves/2.0", payload)
+            if self.cve_keyword:
+                payload["keywordSearch"] = self.cve_keyword
+            try:
+                data = self._get(self.cve_path, payload)
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 400 and "page end" in (e.response.text or "").lower():
+                    logger.warning(f"CVE page end at startIndex={index}, stopping iteration")
+                    break
+                raise
             vulnerabilities = data.get("vulnerabilities", [])
             for vuln in vulnerabilities:
                 cve_item = vuln.get("cve") or vuln
                 yield normalize_cve_item(cve_item)
             if total_results is None:
                 total_results = data.get("totalResults")
-            index += data.get("resultsPerPage", len(vulnerabilities))
-            if total_results is None or index >= total_results or not vulnerabilities:
+            returned = len(vulnerabilities)
+            if returned == 0:
                 break
-            time.sleep(0.6 if self.api_key else 6)
+            index += returned
+            if total_results is not None and index >= total_results:
+                break
+            if not self._disable_rate_limit:
+                time.sleep(0.6 if self.api_key else 6)
 
-    def iter_cpe_items(self, start_index: int = 0, results_per_page: int = 500) -> Generator[Dict, None, None]:
+    def iter_cpe_items(self, start_index: int = 0, results_per_page: Optional[int] = None) -> Generator[Dict, None, None]:
         """Iterate CPE items from the NVD API."""
 
+        page_size = results_per_page or self.cpe_results_per_page
         total_results: Optional[int] = None
         index = start_index
         while True:
             payload = {
-                "resultsPerPage": results_per_page,
+                "resultsPerPage": page_size,
                 "startIndex": index,
             }
-            data = self._get("/cpes/2.0", payload)
+            if self.cpe_keyword:
+                payload["keywordSearch"] = self.cpe_keyword
+            try:
+                data = self._get(self.cpe_path, payload)
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 400 and "page end" in (e.response.text or "").lower():
+                    logger.warning(f"CPE page end at startIndex={index}, stopping iteration")
+                    break
+                raise
             products = data.get("products", [])
             for product in products:
                 cpe_name = product.get("cpeName", {})
@@ -148,19 +188,43 @@ class NVDApiClient:
                 }
             if total_results is None:
                 total_results = data.get("totalResults")
-            index += data.get("resultsPerPage", len(products))
-            if total_results is None or index >= total_results or not products:
+            returned = len(products)
+            if returned == 0:
                 break
-            time.sleep(0.6 if self.api_key else 6)
+            index += returned
+            if total_results is not None and index >= total_results:
+                break
+            if not self._disable_rate_limit:
+                time.sleep(0.6 if self.api_key else 6)
 
     def _get(self, path: str, params: Dict) -> Dict:
-        response = self.session.get(API_BASE + path, params=params, timeout=120)
+        self._respect_rate_limit()
+        url = self.api_base + path
+        response = self.session.get(url, params=params, timeout=120)
         if response.status_code == 429:
             # Rate limited - simple backoff
-            time.sleep(2)
-            response = self.session.get(API_BASE + path, params=params, timeout=120)
+            retry_after = response.headers.get("Retry-After")
+            sleep_for = float(retry_after) if retry_after else 2
+            time.sleep(sleep_for)
+            self._respect_rate_limit()
+            response = self.session.get(url, params=params, timeout=120)
+        if response.status_code >= 400:
+            snippet = response.text[:500] if response.text else ""
+            logger.error(f"NVD API error {response.status_code} for {url} params={params} body={snippet}")
         response.raise_for_status()
+        self._request_timestamps.append(time.time())
         return response.json()
+
+    def _respect_rate_limit(self) -> None:
+        """Throttle requests to honor NVD public/API rate limits (configurable via env)."""
+        if self._disable_rate_limit or self._rate_limit <= 0:
+            return
+        now = time.time()
+        while self._request_timestamps and now - self._request_timestamps[0] > self._rate_window:
+            self._request_timestamps.popleft()
+        if len(self._request_timestamps) >= self._rate_limit:
+            sleep_for = self._rate_window - (now - self._request_timestamps[0]) + 0.1
+            time.sleep(max(sleep_for, 0.1))
 
 
 def normalize_cve_item(raw_item: Dict) -> Dict:
@@ -176,10 +240,11 @@ def normalize_cve_item(raw_item: Dict) -> Dict:
         "ASSIGNER": item.get("sourceIdentifier"),
     }
 
-    description_data = item.get("descriptions", [])
+    description_data = item.get("descriptions") or []
     problemtype_data = [
         {"description": weakness.get("description", [])}
-        for weakness in item.get("weaknesses", [])
+        for weakness in (item.get("weaknesses") or [])
+        if weakness
     ]
     reference_data = [
         {
@@ -187,7 +252,8 @@ def normalize_cve_item(raw_item: Dict) -> Dict:
             "name": ref.get("url"),
             "refsource": ref.get("source"),
         }
-        for ref in item.get("references", [])
+        for ref in (item.get("references") or [])
+        if ref
     ]
 
     normalized: Dict = {
@@ -201,7 +267,7 @@ def normalize_cve_item(raw_item: Dict) -> Dict:
         "lastModifiedDate": item.get("lastModified"),
     }
 
-    metrics = item.get("metrics", {})
+    metrics = item.get("metrics") or {}
     cvss_v3 = (metrics.get("cvssMetricV31") or metrics.get("cvssMetricV30") or [])
     if cvss_v3:
         metric = cvss_v3[0]
@@ -252,7 +318,7 @@ def normalize_cve_item(raw_item: Dict) -> Dict:
             "userInteractionRequired": metric.get("userInteractionRequired"),
         }
 
-    configurations = item.get("configurations")
+    configurations = item.get("configurations") or {}
     if configurations:
         raw_nodes = []
         if isinstance(configurations, dict):
@@ -304,9 +370,11 @@ def write_cve_batches(
     batch_files: List[str] = []
     batch: List[Dict] = []
     batch_index = 1
+    total_items = 0
 
-    for item in items:
+    for item in tqdm(items, desc="CVE items", unit="cve", leave=False):
         batch.append(item)
+        total_items += 1
         if len(batch) >= batch_size:
             file_path = _write_batch(batch, output_path, batch_index)
             batch_files.append(file_path)
@@ -317,6 +385,7 @@ def write_cve_batches(
         file_path = _write_batch(batch, output_path, batch_index)
         batch_files.append(file_path)
 
+    logger.info(f"CVE batches written: files={len(batch_files)} items={total_items} -> {output_path}")
     return batch_files
 
 
@@ -334,11 +403,13 @@ def write_cpe_batches(
     batch_files: List[str] = []
     batch: List[Dict] = []
     batch_index = 1
+    total_items = 0
 
-    for item in items:
+    for item in tqdm(items, desc="CPE items", unit="cpe", leave=False):
         if not item.get("cpe23Uri"):
             continue
         batch.append(item)
+        total_items += 1
         if len(batch) >= batch_size:
             file_path = _write_cpe_batch(batch, output_path, batch_index)
             batch_files.append(file_path)
@@ -347,6 +418,7 @@ def write_cpe_batches(
     if batch:
         file_path = _write_cpe_batch(batch, output_path, batch_index)
         batch_files.append(file_path)
+    logger.info(f"CPE batches written: files={len(batch_files)} items={total_items} -> {output_path}")
     return batch_files
 
 
