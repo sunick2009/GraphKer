@@ -123,6 +123,9 @@ class CAPECInserter:
     # Define which Dataset and Cypher files will be imported on CAPEC refrence Insertion
     def files_to_insert_capec_reference(self):
         target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC reference directory missing: {target_dir}")
+            return []
         listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         reference_files = []
@@ -138,6 +141,9 @@ class CAPECInserter:
     # Define which Dataset and Cypher files will be imported on CAPEC attack Insertion
     def files_to_insert_capec_attack(self):
         target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC attack directory missing: {target_dir}")
+            return []
         listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         attack_pattern_files = []
@@ -153,6 +159,9 @@ class CAPECInserter:
     # Define which Dataset and Cypher files will be imported on CAPEC category Insertion
     def files_to_insert_capec_category(self):
         target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC category directory missing: {target_dir}")
+            return []
         listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         category_files = []
@@ -168,6 +177,9 @@ class CAPECInserter:
     # Define which Dataset and Cypher files will be imported on CAPEC view Insertion
     def files_to_insert_capec_view(self):
         target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC view directory missing: {target_dir}")
+            return []
         listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         view_files = []
@@ -192,6 +204,9 @@ class CAPECInserter:
 
     def direct_insert_references(self):
         target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC reference directory missing: {target_dir}")
+            return
         files = [f for f in os.listdir(target_dir) if f.startswith("capec_reference") and f.endswith(".json")]
         if not files:
             logger.warning("No CAPEC reference files found for direct ingest.")
@@ -206,14 +221,18 @@ class CAPECInserter:
               r.Publisher = ref.Publisher
         """
         with self.driver.session() as session:
-            for fname in files:
+            for fname in tqdm(files, desc="CAPEC reference files", unit="file"):
                 data = self._load_json(os.path.join("mitre_capec", "splitted", fname))
-                for batch in self._chunked(data):
+                total_batches = math.ceil(len(data) / BATCH_SIZE) if data else 0
+                for batch in tqdm(self._chunked(data), total=total_batches, leave=False, desc=f"CAPEC ref {fname}", unit="batch"):
                     session.run(cypher, batch=batch)
         logger.info("CAPEC references inserted via direct ingest.")
 
     def direct_insert_attack_patterns(self):
         target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC attack directory missing: {target_dir}")
+            return
         files = [f for f in os.listdir(target_dir) if f.startswith("capec_attack_pattern") and f.endswith(".json")]
         if not files:
             logger.warning("No CAPEC attack pattern files found for direct ingest.")
@@ -253,15 +272,19 @@ class CAPECInserter:
           MERGE (c)-[:Related_Weakness]->(w))
         """
         with self.driver.session() as session:
-            for fname in files:
+            for fname in tqdm(files, desc="CAPEC attack pattern files", unit="file"):
                 raw = self._load_json(os.path.join("mitre_capec", "splitted", fname))
                 simplified = [simplify(item) for item in raw]
-                for batch in self._chunked(simplified):
+                total_batches = math.ceil(len(simplified) / BATCH_SIZE) if simplified else 0
+                for batch in tqdm(self._chunked(simplified), total=total_batches, leave=False, desc=f"CAPEC attack {fname}", unit="batch"):
                     session.run(cypher, batch=batch)
         logger.info("CAPEC attack patterns inserted via direct ingest.")
 
     def direct_insert_categories(self):
         target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC category directory missing: {target_dir}")
+            return
         files = [f for f in os.listdir(target_dir) if f.startswith("capec_category") and f.endswith(".json")]
         if not files:
             logger.warning("No CAPEC category files found for direct ingest.")
@@ -275,15 +298,19 @@ class CAPECInserter:
               c.Description = cat.description
         """
         with self.driver.session() as session:
-            for fname in files:
+            for fname in tqdm(files, desc="CAPEC category files", unit="file"):
                 raw = self._load_json(os.path.join("mitre_capec", "splitted", fname))
                 simplified = [{"id": i.get("ID"), "name": i.get("Name"), "status": i.get("Status"), "description": i.get("Description")} for i in raw]
-                for batch in self._chunked(simplified):
+                total_batches = math.ceil(len(simplified) / BATCH_SIZE) if simplified else 0
+                for batch in tqdm(self._chunked(simplified), total=total_batches, leave=False, desc=f"CAPEC cat {fname}", unit="batch"):
                     session.run(cypher, batch=batch)
         logger.info("CAPEC categories inserted via direct ingest.")
 
     def direct_insert_views(self):
         target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC view directory missing: {target_dir}")
+            return
         files = [f for f in os.listdir(target_dir) if f.startswith("capec_view") and f.endswith(".json")]
         if not files:
             logger.warning("No CAPEC view files found for direct ingest.")

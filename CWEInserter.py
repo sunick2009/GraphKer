@@ -209,9 +209,10 @@ class CWEInserter:
               r.Publisher = ref.Publisher
         """
         with self.driver.session() as session:
-            for fname in files:
+            for fname in tqdm(files, desc="CWE reference files", unit="file"):
                 data = self._load_json(os.path.join("mitre_cwe", "splitted", fname))
-                for batch in self._chunked(data):
+                total_batches = math.ceil(len(data) / BATCH_SIZE) if data else 0
+                for batch in tqdm(self._chunked(data), total=total_batches, leave=False, desc=f"CWE ref {fname}", unit="batch"):
                     session.run(cypher, batch=batch)
         logger.info("CWE references inserted via direct ingest.")
 
@@ -271,10 +272,11 @@ class CWEInserter:
         """
 
         with self.driver.session() as session:
-            for fname in files:
+            for fname in tqdm(files, desc="CWE weakness files", unit="file"):
                 raw = self._load_json(os.path.join("mitre_cwe", "splitted", fname))
                 simplified = [simplify(item) for item in raw]
-                for batch in self._chunked(simplified):
+                total_batches = math.ceil(len(simplified) / BATCH_SIZE) if simplified else 0
+                for batch in tqdm(self._chunked(simplified), total=total_batches, leave=False, desc=f"CWE weak {fname}", unit="batch"):
                     session.run(cypher, batch=batch)
         logger.info("CWE weaknesses inserted via direct ingest.")
 
@@ -293,10 +295,11 @@ class CWEInserter:
               c.Summary = cat.summary
         """
         with self.driver.session() as session:
-            for fname in files:
+            for fname in tqdm(files, desc="CWE category files", unit="file"):
                 raw = self._load_json(os.path.join("mitre_cwe", "splitted", fname))
                 simplified = [{"id": i.get("ID"), "name": i.get("Name"), "status": i.get("Status"), "summary": i.get("Summary")} for i in raw]
-                for batch in self._chunked(simplified):
+                total_batches = math.ceil(len(simplified) / BATCH_SIZE) if simplified else 0
+                for batch in tqdm(self._chunked(simplified), total=total_batches, leave=False, desc=f"CWE cat {fname}", unit="batch"):
                     session.run(cypher, batch=batch)
         logger.info("CWE categories inserted via direct ingest.")
 
@@ -316,7 +319,7 @@ class CWEInserter:
               view.Objective = v.objective
         """
         with self.driver.session() as session:
-            for fname in files:
+            for fname in tqdm(files, desc="CWE view files", unit="file"):
                 raw = self._load_json(os.path.join("mitre_cwe", "splitted", fname))
                 simplified = []
                 for i in raw:
@@ -330,6 +333,7 @@ class CWEInserter:
                         "status": i.get("Status"),
                         "objective": obj if obj is None or isinstance(obj, str) else str(obj),
                     })
-                for batch in self._chunked(simplified):
+                total_batches = math.ceil(len(simplified) / BATCH_SIZE) if simplified else 0
+                for batch in tqdm(self._chunked(simplified), total=total_batches, leave=False, desc=f"CWE view {fname}", unit="batch"):
                     session.run(cypher, batch=batch)
         logger.info("CWE views inserted via direct ingest.")
