@@ -1,20 +1,38 @@
 import os
 import time
 import fnmatch
-from fileType import FileType
-from Util import Util
+import json
+import math
 from neo4j import exceptions
 from loguru import logger
+from tqdm import tqdm
+
+BATCH_SIZE = 200
 
 class CVEInserter:
 
-    def __init__(self, driver, import_path):
+    def __init__(self, driver, import_path, apoc_import_path):
         self.driver = driver
-        self.import_path = import_path
+        self.import_path = import_path          # local path to list files
+        self.apoc_import_path = apoc_import_path  # path visible to Neo4j for file:///
+
+    def _log_apoc_summary(self, records, label, file_url):
+        if not records:
+            logger.warning(f"{label} {file_url} returned no summary rows from apoc.")
+            return
+        r = records[0]
+        parts = []
+        for k in ["batches", "total", "committedOperations", "failedOperations", "failedBatches", "timeTaken"]:
+            if k in r:
+                parts.append(f"{k}={r[k]}")
+        logger.info(f"{label} {file_url} summary: " + ", ".join(parts) if parts else f"{label} {file_url} summary: {r}")
 
     # Configure CVE Files and CVE Cypher Script for insertion
-    def cve_insertion(self):
+    def cve_insertion(self, direct_ingest: bool = False, direct_limit: int | None = None):
         logger.info("Inserting CVE Files to Database...")
+        if direct_ingest:
+            self.direct_insert_cve(direct_limit=direct_limit)
+            return
         files = self.files_to_insert_cve()
         for f in files:
             logger.info(f'Inserting {f}')
@@ -25,11 +43,14 @@ class CVEInserter:
         start_time = time.time()
         cves_cypher_file = open(os.path.join(self.import_path, "CVEs.cypher"), "r")
         query = cves_cypher_file.read()
-        query = query.replace('cveFilesToImport', f"'{file}'")
+
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
 
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, cveFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CVE", file_url)
         except exceptions.CypherError as e:
             logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
@@ -46,6 +67,7 @@ class CVEInserter:
     def files_to_insert_cve(self):
         target_dir = os.path.join(self.import_path, "nist", "cve", "splitted")
         if not os.path.exists(target_dir):
+            logger.warning(f"CVE directory missing: {target_dir}")
             return []
         listOfFiles = os.listdir(target_dir)
         pattern = "*.json"

@@ -1,25 +1,41 @@
 import os
 import fnmatch
 import json
+import math
 from neo4j import exceptions
 from loguru import logger
+from tqdm import tqdm
 
 BATCH_SIZE = 500
 
 class CAPECInserter:
 
-    def __init__(self, driver, import_path):
+    def __init__(self, driver, import_path, apoc_import_path):
         self.driver = driver
-        self.import_path = import_path
+        self.import_path = import_path          # local path to list files
+        self.apoc_import_path = apoc_import_path  # path visible to Neo4j for file:///
+
+    def _log_apoc_summary(self, records, label, file_url):
+        if not records:
+            logger.warning(f"{label} {file_url} returned no summary rows from apoc.")
+            return
+        r = records[0]
+        parts = []
+        for k in ["batches", "total", "committedOperations", "failedOperations", "failedBatches", "timeTaken"]:
+            if k in r:
+                parts.append(f"{k}={r[k]}")
+        logger.info(f"{label} {file_url} summary: " + ", ".join(parts) if parts else f"{label} {file_url} summary: {r}")
 
     # Cypher Query to insert CAPEC refrence Cypher Script
     def query_capec_reference_script(self, file):
         capecs_cypher_file = open(os.path.join(self.import_path, "CAPECs_reference.cypher"), "r")
         query = capecs_cypher_file.read()
-        query = query.replace('capecReferenceFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, capecReferenceFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CAPEC reference", file_url)
         except exceptions.CypherError as e:
             logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
@@ -35,10 +51,12 @@ class CAPECInserter:
         capecs_cypher_file = open(os.path.join(self.import_path, "CAPECs_attack.cypher"), "r")
         query = capecs_cypher_file.read()
 
-        query = query.replace('capecAttackFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, capecAttackFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CAPEC attack", file_url)
         except exceptions.CypherError as e:
             logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
@@ -54,11 +72,13 @@ class CAPECInserter:
     def query_capec_category_script(self, file):
         capecs_cypher_file = open(os.path.join(self.import_path, "CAPECs_category.cypher"), "r")
         query = capecs_cypher_file.read()
-        query = query.replace('capecCategoryFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
 
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, capecCategoryFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CAPEC category", file_url)
         except exceptions.CypherError as e:
             logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
@@ -74,11 +94,13 @@ class CAPECInserter:
     def query_capec_view_script(self, file):
         capecs_cypher_file = open(os.path.join(self.import_path, "CAPECs_view.cypher"), "r")
         query = capecs_cypher_file.read()
-        query = query.replace('capecViewFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
 
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, capecViewFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CAPEC view", file_url)
         except exceptions.CypherError as e:
             logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
@@ -324,9 +346,10 @@ class CAPECInserter:
               view.Description = v.description
         """
         with self.driver.session() as session:
-            for fname in files:
+            for fname in tqdm(files, desc="CAPEC view files", unit="file"):
                 raw = self._load_json(os.path.join("mitre_capec", "splitted", fname))
                 simplified = [{"id": i.get("ID"), "name": i.get("Name"), "status": i.get("Status"), "description": i.get("Description")} for i in raw]
-                for batch in self._chunked(simplified):
+                total_batches = math.ceil(len(simplified) / BATCH_SIZE) if simplified else 0
+                for batch in tqdm(self._chunked(simplified), total=total_batches, leave=False, desc=f"CAPEC view {fname}", unit="batch"):
                     session.run(cypher, batch=batch)
         logger.info("CAPEC views inserted via direct ingest.")

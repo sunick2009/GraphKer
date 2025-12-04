@@ -1,7 +1,7 @@
 // Insert CVEs - Cypher Script
-UNWIND [cveFilesToImport] AS files
+UNWIND $cveFilesToImport AS file
 CALL apoc.periodic.iterate(
-        'CALL apoc.load.json($files) YIELD value AS item RETURN item',
+        'CALL apoc.load.json($file) YIELD value AS item RETURN item',
         '
           MERGE (a:CVE {
             Name: item.cve.CVE_data_meta.ID
@@ -85,6 +85,6 @@ CALL apoc.periodic.iterate(
             MERGE (a)-[:referencedBy]->(r)
           )
         ',
-        {batchSize:200, params: {files: files}}
+        {batchSize:200, params: {file: file}}
     ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

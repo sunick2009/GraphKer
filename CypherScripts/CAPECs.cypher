@@ -1,9 +1,9 @@
 // Insert CAPECs Catalog - Cypher Script
 
-UNWIND [capecReferenceFilesToImport] AS files
+UNWIND $capecReferenceFilesToImport AS file
 
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS reference RETURN reference',
+  'CALL apoc.load.json($file) YIELD value AS reference RETURN reference',
   '
     // Insert External References for CAPECs
     MERGE (r:External_Reference_CAPEC {Reference_ID: reference.Reference_ID})
@@ -11,16 +11,16 @@ CALL apoc.periodic.iterate(
       r.Edition = reference.Edition, r.URL = reference.URL,
       r.Publication_Year = reference.Publication_Year, r.Publisher = reference.Publisher
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;
 
 
 // Insert CAPECs
-UNWIND [capecAttackFilesToImport] AS files
+UNWIND $capecAttackFilesToImport AS file
 
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS capec RETURN capec',
+  'CALL apoc.load.json($file) YIELD value AS capec RETURN capec',
   '
     // Insert Attack Patterns for CAPECs
     MERGE (cp:CAPEC {
@@ -77,7 +77,7 @@ CALL apoc.periodic.iterate(
       MERGE (cp)-[rel:hasExternal_Reference {CAPEC_ID: cp.Name}]->(Ref)
     )
   ',
-  {batchSize:1000, params: {files:files}}
+  {batchSize:1000, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;
 
@@ -85,10 +85,10 @@ CALL apoc.periodic.iterate(
 
 // ------------------------------------------------------------------------
 // Insert Categories for CAPECs
-UNWIND [capecCategoryFilesToImport] AS files
+UNWIND $capecCategoryFilesToImport AS file
 
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS category RETURN category',
+  'CALL apoc.load.json($file) YIELD value AS category RETURN category',
   '
     MERGE (c:CAPEC {Name: "CAPEC-" + category.ID})
     SET c.Extended_Name = category.Name,
@@ -114,16 +114,16 @@ CALL apoc.periodic.iterate(
       SET rel.Section = categoryExReference.Section
     )
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;
 
 // ------------------------------------------------------------------------
 // Insert Views for CAPECs
 
-UNWIND [capecViewFilesToImport] AS files
+UNWIND $capecViewFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS view RETURN view',
+  'CALL apoc.load.json($file) YIELD value AS view RETURN view',
   '
     MERGE (v:CAPEC_VIEW {ViewID: view.ID})
       SET v.Name = view.Name, v.Type = view.Type, v.Status = view.Status,
@@ -158,6 +158,6 @@ CALL apoc.periodic.iterate(
         MERGE (v)-[:hasExternal_Reference]->(viewRef)
       )
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

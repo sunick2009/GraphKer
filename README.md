@@ -132,6 +132,7 @@ GraphKer now supports the modern NVD 2.0 feeds. By default, CVE data is download
 - Custom API paths: if your API uses different endpoints (e.g. `/nvd/v1/cve` and `/nvd/v1/cpe`), set `NVD_API_CVE_PATH` and `NVD_API_CPE_PATH`.
 - Some custom APIs require a query even for bulk fetches. Use `NVD_CVE_QUERY_KEYWORD` and `NVD_CPE_QUERY_KEYWORD` (default `*`) to populate `keywordSearch` automatically.
 - Page sizes: `NVD_CVE_PAGE_SIZE` (default 2000) and `NVD_CPE_PAGE_SIZE` (default 10000) to match your server limits/performance.
+- Download-only: `--download-only` will fetch/prepare datasets and copy Cypher scripts into the import path, then exit without touching Neo4j. Use this to move files to a Neo4j server (e.g., its import dir) before running the load.
 
 Example using the API for both CVE and CPE data:
 

@@ -17,7 +17,9 @@ from nvd_downloader import NVDSourceConfig
 def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
         nvd_source: str | None = None, nvd_api_key: str | None = None,
         nvd_years: str | None = None, reuse_downloads: bool = False,
-        skip_cpe: bool = False, direct_ingest: bool = False, skip_cve: bool = False):
+        skip_cpe: bool = False, direct_ingest: bool = False, skip_cve: bool = False,
+        direct_limit: int | None = None, download_only: bool = False,
+        apoc_import_path: str | None = None):
     driver = None
     try:
         # Fail fast if Neo4j is unreachable to avoid doing heavy downloads first.
@@ -31,6 +33,7 @@ def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
         start_time = time.time()
 
         import_path = Util.set_import_path(directory)
+        apoc_import_root = Util.set_import_path(apoc_import_path) if apoc_import_path else import_path
 
         nvd_config = NVDSourceConfig.from_env()
         if nvd_source:
@@ -50,23 +53,27 @@ def run(url_db, username, password, directory, neo4jbrowser, graphlytic,
             Util.clear_directory(import_path)
             scraper.download_datasets(import_path, nvd_config, skip_cpe=skip_cpe)
 
-        Util.copy_files_cypher_script(import_path)
+        Util.copy_files_cypher_script(apoc_import_root)
+
+        if download_only:
+            logger.info("Download-only mode enabled; skipping Neo4j load.")
+            return
 
         driver = GraphDatabase.driver(url_db, auth=(username, password))
 
-        cpeInserter = CPEInserter(driver, import_path)
-        cveInserter = CVEInserter(driver, import_path)
-        cweInserter = CWEInserter(driver, import_path)
-        capecInserter = CAPECInserter(driver, import_path)
+        cpeInserter = CPEInserter(driver, import_path, apoc_import_root)
+        cveInserter = CVEInserter(driver, import_path, apoc_import_root)
+        cweInserter = CWEInserter(driver, import_path, apoc_import_root)
+        capecInserter = CAPECInserter(driver, import_path, apoc_import_root)
         databaseUtil = DatabaseUtil(driver)
 
         databaseUtil.clear()
         databaseUtil.schema_script()
         if not skip_cpe:
-            cpeInserter.cpe_insertion()
+            cpeInserter.cpe_insertion(direct_ingest=direct_ingest, direct_limit=direct_limit)
         capecInserter.capec_insertion(direct_ingest=direct_ingest)
         if not skip_cve:
-            cveInserter.cve_insertion()
+            cveInserter.cve_insertion(direct_ingest=direct_ingest, direct_limit=direct_limit)
         cweInserter.cwe_insertion(direct_ingest=direct_ingest)
 
         driver.close()
@@ -133,6 +140,12 @@ def main():
                         help="Insert datasets directly via driver (no apoc.load.json/file import) for supported types (currently CWE/CAPEC).")
     parser.add_argument('--skip-cve', action='store_true',
                         help="Skip CVE insertion (useful when Neo4j cannot read local import files).")
+    parser.add_argument('--direct-limit', type=int,
+                        help="Limit number of records ingested per dataset in direct mode (useful for quick tests).")
+    parser.add_argument('--download-only', action='store_true',
+                        help="Download and prepare files only; skip Neo4j load. Useful for copying batches to a server import directory.")
+    parser.add_argument('--apoc-import-path',
+                        help="Path visible to the Neo4j server for APOC file:// loading (default: same as --directory). Use when files are on the server but not mounted locally.")
 
     args = parser.parse_args()
     if args.neo4jbrowser == "y" or args.neo4jbrowser == "Y":
@@ -148,7 +161,8 @@ def main():
         nvd_source=args.nvd_source, nvd_api_key=args.nvd_api_key,
         nvd_years=args.nvd_years, reuse_downloads=args.reuse_downloads,
         skip_cpe=args.skip_cpe, direct_ingest=args.direct_ingest,
-        skip_cve=args.skip_cve)
+        skip_cve=args.skip_cve, direct_limit=args.direct_limit,
+        apoc_import_path=args.apoc_import_path)
     return
 
 

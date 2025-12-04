@@ -93,10 +93,18 @@ class Util:
             logger.error(f"CypherScripts directory not found at {current_path}")
             return
 
-        os.makedirs(to_path, exist_ok=True)
+        try:
+            os.makedirs(to_path, exist_ok=True)
+        except PermissionError:
+            logger.warning(f"Cannot create/verify directory {to_path} (permission denied). Skipping copy of Cypher scripts.")
+            return
         for name in os.listdir(current_path):
             if name.endswith(".cypher"):
                 src = os.path.join(current_path, name)
                 dst = os.path.join(to_path, name)
-                shutil.copy2(src, dst)
-                logger.debug(f"Copied Cypher script {name} to import path")
+                try:
+                    shutil.copy2(src, dst)
+                    logger.debug(f"Copied Cypher script {name} to import path")
+                except PermissionError:
+                    logger.warning(f"Permission denied copying {name} to {to_path}; skipping remaining scripts.")
+                    break

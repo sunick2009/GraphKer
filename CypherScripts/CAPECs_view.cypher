@@ -1,9 +1,9 @@
 // ------------------------------------------------------------------------
 // Insert Views for CAPECs
 
-UNWIND [capecViewFilesToImport] AS files
+UNWIND $capecViewFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS view RETURN view',
+  'CALL apoc.load.json($file) YIELD value AS view RETURN view',
   '
     MERGE (v:CAPEC_VIEW {ViewID: view.ID})
       SET v.Name = view.Name, v.Type = view.Type, v.Status = view.Status,
@@ -38,6 +38,6 @@ CALL apoc.periodic.iterate(
         MERGE (v)-[:hasExternal_Reference]->(viewRef)
       )
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

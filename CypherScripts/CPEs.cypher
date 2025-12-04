@@ -1,7 +1,7 @@
 // Insert CPEs and CPEs Children - Cypher Script
-UNWIND [cpeFilesToImport] AS files
+UNWIND $cpeFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value RETURN value',
+  'CALL apoc.load.json($file) YIELD value RETURN value',
   '
     WITH value
     MERGE (cpe:CPE {
@@ -15,6 +15,6 @@ CALL apoc.periodic.iterate(
       MERGE (cpe)-[:parentOf]->(child)
     )
   ',
-  {batchSize:1000, params: {files:files}}
+  {batchSize:1000, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

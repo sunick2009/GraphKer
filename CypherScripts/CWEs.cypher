@@ -1,8 +1,8 @@
 // Insert CWEs Catalog - Cypher Script
 
-UNWIND [cweReferenceFilesToImport] AS files
+UNWIND $cweReferenceFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS reference RETURN reference',
+  'CALL apoc.load.json($file) YIELD value AS reference RETURN reference',
   '
     // Insert External References for CWEs
     MERGE (r:External_Reference_CWE {Reference_ID: reference.Reference_ID})
@@ -11,15 +11,15 @@ CALL apoc.periodic.iterate(
       r.Edition = reference.Edition, r.URL = reference.URL,
       r.Publication_Year = reference.Publication_Year, r.Publisher = reference.Publisher
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;
 
 // ------------------------------------------------------------------------
 // Insert Weaknesses for CWEs
-UNWIND [cweWeaknessFilesToImport] AS files
+UNWIND $cweWeaknessFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS weakness RETURN weakness',
+  'CALL apoc.load.json($file) YIELD value AS weakness RETURN weakness',
   '
     // Insert CWEs
     MERGE (w:CWE {
@@ -156,16 +156,16 @@ CALL apoc.periodic.iterate(
       MERGE (w)-[:hasExternal_Reference]->(ref)
     )
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;
 
 
 // ------------------------------------------------------------------------
 // Insert Categories for CWEs
-UNWIND [cweCategoryFilesToImport] AS files
+UNWIND $cweCategoryFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS category RETURN category',
+  'CALL apoc.load.json($file) YIELD value AS category RETURN category',
   '
     MERGE (c:CWE {
       Name: "CWE-" + category.ID
@@ -194,15 +194,15 @@ CALL apoc.periodic.iterate(
       MERGE (c)-[:hasExternal_Reference]->(catRef)
     )
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;
 
 // ------------------------------------------------------------------------
 // Insert Views for CWEs
-UNWIND [cweViewFilesToImport] AS files
+UNWIND $cweViewFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS view RETURN view',
+  'CALL apoc.load.json($file) YIELD value AS view RETURN view',
   '
     MERGE (v:CWE_VIEW {ViewID: view.ID})
     SET v.Name = view.Name,
@@ -238,6 +238,6 @@ CALL apoc.periodic.iterate(
       MERGE (v)-[:hasExternal_Reference]->(viewRef)
     )
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

@@ -176,14 +176,22 @@ class NVDApiClient:
                 raise
             products = data.get("products", [])
             for product in products:
-                cpe_name = product.get("cpeName", {})
-                children = product.get("cpeNameMatch", [])
+                raw_cpe = product.get("cpeName") or product.get("cpe") or {}
+                cpe_uri = None
+                if isinstance(raw_cpe, dict):
+                    cpe_uri = raw_cpe.get("cpe23Uri") or raw_cpe.get("cpeName")
+                    children = raw_cpe.get("cpeNameMatch", [])
+                else:
+                    cpe_uri = raw_cpe
+                    children = []
+
+                children = product.get("cpeNameMatch", children) or []
                 yield {
-                    "cpe23Uri": cpe_name.get("cpe23Uri"),
+                    "cpe23Uri": cpe_uri,
                     "cpe_name": [
-                        {"cpe23Uri": child.get("criteria"), "vulnerable": child.get("vulnerable")}
+                        {"cpe23Uri": child.get("criteria") or child.get("cpe23Uri"), "vulnerable": child.get("vulnerable")}
                         for child in children
-                        if child.get("criteria")
+                        if child.get("criteria") or child.get("cpe23Uri")
                     ],
                 }
             if total_results is None:

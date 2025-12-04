@@ -1,8 +1,8 @@
 // ------------------------------------------------------------------------
 // Insert Views for CWEs
-UNWIND [cweViewFilesToImport] AS files
+UNWIND $cweViewFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS view RETURN view',
+  'CALL apoc.load.json($file) YIELD value AS view RETURN view',
   '
     MERGE (v:CWE_VIEW {ViewID: view.ID})
     SET v.Name = view.Name,
@@ -38,6 +38,6 @@ CALL apoc.periodic.iterate(
       MERGE (v)-[:hasExternal_Reference]->(viewRef)
     )
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

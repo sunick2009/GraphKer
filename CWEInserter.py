@@ -1,26 +1,42 @@
 import os
 import fnmatch
 import json
+import math
 from neo4j import exceptions
 from loguru import logger
+from tqdm import tqdm
 
 BATCH_SIZE = 500
 
 class CWEInserter:
 
-    def __init__(self, driver, import_path):
+    def __init__(self, driver, import_path, apoc_import_path):
         self.driver = driver
-        self.import_path = import_path
+        self.import_path = import_path          # local path to list files
+        self.apoc_import_path = apoc_import_path  # path visible to Neo4j for file:///
+
+    def _log_apoc_summary(self, records, label, file_url):
+        if not records:
+            logger.warning(f"{label} {file_url} returned no summary rows from apoc.")
+            return
+        r = records[0]
+        parts = []
+        for k in ["batches", "total", "committedOperations", "failedOperations", "failedBatches", "timeTaken"]:
+            if k in r:
+                parts.append(f"{k}={r[k]}")
+        logger.info(f"{label} {file_url} summary: " + ", ".join(parts) if parts else f"{label} {file_url} summary: {r}")
 
     # Cypher Query to insert CWE reference Cypher Script
     def query_cwe_reference_script(self, file):
         cwes_cypher_file = open(os.path.join(self.import_path, "CWEs_reference.cypher"), "r")
         query = cwes_cypher_file.read()
-        query = query.replace('cweReferenceFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
 
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, cweReferenceFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CWE reference", file_url)
         except exceptions.CypherError as e:
             logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
@@ -35,11 +51,13 @@ class CWEInserter:
     def query_cwe_weakness_script(self, file):
         cwes_cypher_file = open(os.path.join(self.import_path, "CWEs_weakness.cypher"), "r")
         query = cwes_cypher_file.read()
-        query = query.replace('cweWeaknessFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
 
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, cweWeaknessFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CWE weakness", file_url)
         except exceptions.CypherError as e:
             logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
@@ -54,11 +72,13 @@ class CWEInserter:
     def query_cwe_category_script(self, file):
         cwes_cypher_file = open(os.path.join(self.import_path, "CWEs_category.cypher"), "r")
         query = cwes_cypher_file.read()
-        query = query.replace('cweCategoryFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
 
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, cweCategoryFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CWE category", file_url)
         except exceptions.CypherError as e:
             logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
@@ -73,11 +93,13 @@ class CWEInserter:
     def query_cwe_view_script(self, file):
         cwes_cypher_file = open(os.path.join(self.import_path, "CWEs_view.cypher"), "r")
         query = cwes_cypher_file.read()
-        query = query.replace('cweViewFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
 
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, cweViewFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CWE view", file_url)
         except exceptions.CypherError as e:
             logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
@@ -121,6 +143,9 @@ class CWEInserter:
     # Define which Dataset and Cypher files will be imported on CWE reference Insertion
     def files_to_insert_cwe_reference(self):
         target_dir = os.path.join(self.import_path, "mitre_cwe", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CWE reference directory missing: {target_dir}")
+            return []
         listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
 
@@ -138,6 +163,9 @@ class CWEInserter:
     # Define which Dataset and Cypher files will be imported on CWE weakness Insertion
     def files_to_insert_cwe_weakness(self):
         target_dir = os.path.join(self.import_path, "mitre_cwe", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CWE weakness directory missing: {target_dir}")
+            return []
         listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         weakness_files = []
@@ -154,6 +182,9 @@ class CWEInserter:
     # Define which Dataset and Cypher files will be imported on CWE category Insertion
     def files_to_insert_cwe_category(self):
         target_dir = os.path.join(self.import_path, "mitre_cwe", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CWE category directory missing: {target_dir}")
+            return []
         listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         category_files = []
@@ -170,6 +201,9 @@ class CWEInserter:
     # Define which Dataset and Cypher files will be imported on CWE view Insertion
     def files_to_insert_cwe_view(self):
         target_dir = os.path.join(self.import_path, "mitre_cwe", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CWE view directory missing: {target_dir}")
+            return []
         listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         view_files = []

@@ -1,8 +1,8 @@
 // ------------------------------------------------------------------------
 // Insert Weaknesses for CWEs
-UNWIND [cweWeaknessFilesToImport] AS files
+UNWIND $cweWeaknessFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS weakness RETURN weakness',
+  'CALL apoc.load.json($file) YIELD value AS weakness RETURN weakness',
   '
     // Insert CWEs
     MERGE (w:CWE {
@@ -139,6 +139,6 @@ CALL apoc.periodic.iterate(
       MERGE (w)-[:hasExternal_Reference]->(ref)
     )
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

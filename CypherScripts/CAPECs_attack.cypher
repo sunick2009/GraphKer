@@ -1,8 +1,8 @@
 // Insert CAPECs
-UNWIND [capecAttackFilesToImport] AS files
+UNWIND $capecAttackFilesToImport AS file
 
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS capec RETURN capec',
+  'CALL apoc.load.json($file) YIELD value AS capec RETURN capec',
   '
     // Insert Attack Patterns for CAPECs
     MERGE (cp:CAPEC {
@@ -59,6 +59,6 @@ CALL apoc.periodic.iterate(
       MERGE (cp)-[rel:hasExternal_Reference {CAPEC_ID: cp.Name}]->(Ref)
     )
   ',
-  {batchSize:1000, params: {files:files}}
+  {batchSize:1000, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

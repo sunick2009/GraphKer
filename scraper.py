@@ -61,7 +61,8 @@ def download_files_cpe(import_path, nvd_config: NVDSourceConfig | None = None):
     cpe_output_dir = os.path.join(import_path, "nist", "cpe")
     os.makedirs(cpe_output_dir, exist_ok=True)
 
-    if not config.api_key:
+    allow_no_key = os.getenv("NVD_ALLOW_CPE_NO_KEY", "false").lower() in ("1", "true", "yes")
+    if not config.api_key and not allow_no_key:
         logger.warning("NVD_API_KEY not provided; skipping CPE download.")
         return
 
