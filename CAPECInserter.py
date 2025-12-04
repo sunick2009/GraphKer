@@ -1,123 +1,160 @@
 import os
 import fnmatch
+import json
+import math
 from neo4j import exceptions
+from loguru import logger
+from tqdm import tqdm
+
+BATCH_SIZE = 500
 
 class CAPECInserter:
 
-    def __init__(self, driver, import_path):
+    def __init__(self, driver, import_path, apoc_import_path):
         self.driver = driver
-        self.import_path = import_path
+        self.import_path = import_path          # local path to list files
+        self.apoc_import_path = apoc_import_path  # path visible to Neo4j for file:///
+
+    def _log_apoc_summary(self, records, label, file_url):
+        if not records:
+            logger.warning(f"{label} {file_url} returned no summary rows from apoc.")
+            return
+        r = records[0]
+        parts = []
+        for k in ["batches", "total", "committedOperations", "failedOperations", "failedBatches", "timeTaken"]:
+            if k in r:
+                parts.append(f"{k}={r[k]}")
+        logger.info(f"{label} {file_url} summary: " + ", ".join(parts) if parts else f"{label} {file_url} summary: {r}")
 
     # Cypher Query to insert CAPEC refrence Cypher Script
     def query_capec_reference_script(self, file):
-        capecs_cypher_file = open(self.import_path + "CAPECs_reference.cypher", "r")
+        capecs_cypher_file = open(os.path.join(self.import_path, "CAPECs_reference.cypher"), "r")
         query = capecs_cypher_file.read()
-        query = query.replace('capecReferenceFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, capecReferenceFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CAPEC reference", file_url)
         except exceptions.CypherError as e:
-            print(f"CypherError: {e}")
+            logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
-            print(f"DriverError: {e}")
+            logger.error(f"DriverError: {e}")
         except Exception as e:
             # Handle other exceptions
-            print(f"An error occurred: {e}")
+            logger.exception(f"An error occurred: {e}")
 
-        print("\nCAPEC Files: " + file + " insertion completed. \n----------")
+        logger.info(f"CAPEC Files: {file} insertion completed.")
 
     # Cypher Query to insert CAPEC attack Cypher Script
     def query_capec_attack_script(self, file):
-        capecs_cypher_file = open(self.import_path + "CAPECs_attack.cypher", "r")
+        capecs_cypher_file = open(os.path.join(self.import_path, "CAPECs_attack.cypher"), "r")
         query = capecs_cypher_file.read()
 
-        query = query.replace('capecAttackFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, capecAttackFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CAPEC attack", file_url)
         except exceptions.CypherError as e:
-            print(f"CypherError: {e}")
+            logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
-            print(f"DriverError: {e}")
+            logger.error(f"DriverError: {e}")
         except Exception as e:
             # Handle other exceptions
-            print(f"An error occurred: {e}")
+            logger.exception(f"An error occurred: {e}")
 
 
-        print("\nCAPEC Files: " + file + " insertion completed. \n----------")
+        logger.info(f"CAPEC Files: {file} insertion completed.")
 
     # Cypher Query to insert CAPEC category Cypher Script
     def query_capec_category_script(self, file):
-        capecs_cypher_file = open(self.import_path + "CAPECs_category.cypher", "r")
+        capecs_cypher_file = open(os.path.join(self.import_path, "CAPECs_category.cypher"), "r")
         query = capecs_cypher_file.read()
-        query = query.replace('capecCategoryFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
 
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, capecCategoryFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CAPEC category", file_url)
         except exceptions.CypherError as e:
-            print(f"CypherError: {e}")
+            logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
-            print(f"DriverError: {e}")
+            logger.error(f"DriverError: {e}")
         except Exception as e:
             # Handle other exceptions
-            print(f"An error occurred: {e}")
+            logger.exception(f"An error occurred: {e}")
 
 
-        print("\nCAPEC Files: " + file + " insertion completed. \n----------")
+        logger.info(f"CAPEC Files: {file} insertion completed.")
 
     # Cypher Query to insert CAPEC view Cypher Script
     def query_capec_view_script(self, file):
-        capecs_cypher_file = open(self.import_path + "CAPECs_view.cypher", "r")
+        capecs_cypher_file = open(os.path.join(self.import_path, "CAPECs_view.cypher"), "r")
         query = capecs_cypher_file.read()
-        query = query.replace('capecViewFilesToImport', f"'{file}'")
+        apoc_path = os.path.join(self.apoc_import_path, file)
+        file_url = f"file:///{apoc_path.replace(os.sep, '/')}"
 
         try:
             with self.driver.session() as session:
-                session.run(query)
+                result = session.run(query, capecViewFilesToImport=[file_url])
+                self._log_apoc_summary(result.data(), "CAPEC view", file_url)
         except exceptions.CypherError as e:
-            print(f"CypherError: {e}")
+            logger.error(f"CypherError: {e}")
         except exceptions.DriverError as e:
-            print(f"DriverError: {e}")
+            logger.error(f"DriverError: {e}")
         except Exception as e:
             # Handle other exceptions
-            print(f"An error occurred: {e}")
+            logger.exception(f"An error occurred: {e}")
 
 
-        print("\nCAPEC Files: " + file + " insertion completed. \n----------")
+        logger.info(f"CAPEC Files: {file} insertion completed.")
 
     # Configure CAPEC Files and CAPEC Cypher Script for insertion
-    def capec_insertion(self):
-        print("\nInserting CAPEC Files to Database...")
+    def capec_insertion(self, direct_ingest: bool = False):
+        logger.info("Inserting CAPEC Files to Database...")
+        if direct_ingest:
+            self.direct_insert_references()
+            self.direct_insert_attack_patterns()
+            self.direct_insert_categories()
+            self.direct_insert_views()
+            return
+
         files = self.files_to_insert_capec_reference()
         for f in files:
-            print('Inserting ' + f)
+            logger.info(f'Inserting {f}')
             self.query_capec_reference_script(f)
 
         files = self.files_to_insert_capec_attack()
         for f in files:
-            print('Inserting ' + f)
+            logger.info(f'Inserting {f}')
             self.query_capec_attack_script(f)
 
         files = self.files_to_insert_capec_category()
         for f in files:
-            print('Inserting ' + f)
+            logger.info(f'Inserting {f}')
             self.query_capec_category_script(f)
 
         files = self.files_to_insert_capec_view()
         for f in files:
-            print('Inserting ' + f)
+            logger.info(f'Inserting {f}')
             self.query_capec_view_script(f)
 
     # Define which Dataset and Cypher files will be imported on CAPEC refrence Insertion
     def files_to_insert_capec_reference(self):
-        listOfFiles = os.listdir(self.import_path + "mitre_capec/splitted/")
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC reference directory missing: {target_dir}")
+            return []
+        listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         reference_files = []
         for entry in listOfFiles:
             if fnmatch.fnmatch(entry, pattern):
                 if entry.startswith("capec_reference"):
-                    reference_files.append("mitre_capec/splitted/" + entry)
+                    reference_files.append(os.path.join("mitre_capec", "splitted", entry))
                 else:
                     continue
 
@@ -125,13 +162,17 @@ class CAPECInserter:
 
     # Define which Dataset and Cypher files will be imported on CAPEC attack Insertion
     def files_to_insert_capec_attack(self):
-        listOfFiles = os.listdir(self.import_path + "mitre_capec/splitted/")
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC attack directory missing: {target_dir}")
+            return []
+        listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         attack_pattern_files = []
         for entry in listOfFiles:
             if fnmatch.fnmatch(entry, pattern):
                 if entry.startswith("capec_attack_pattern"):
-                    attack_pattern_files.append("mitre_capec/splitted/" + entry)
+                    attack_pattern_files.append(os.path.join("mitre_capec", "splitted", entry))
                 else:
                     continue
 
@@ -139,13 +180,17 @@ class CAPECInserter:
 
     # Define which Dataset and Cypher files will be imported on CAPEC category Insertion
     def files_to_insert_capec_category(self):
-        listOfFiles = os.listdir(self.import_path + "mitre_capec/splitted/")
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC category directory missing: {target_dir}")
+            return []
+        listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         category_files = []
         for entry in listOfFiles:
             if fnmatch.fnmatch(entry, pattern):
                 if entry.startswith("capec_category"):
-                    category_files.append("mitre_capec/splitted/" + entry)
+                    category_files.append(os.path.join("mitre_capec", "splitted", entry))
                 else:
                     continue
 
@@ -153,14 +198,158 @@ class CAPECInserter:
 
     # Define which Dataset and Cypher files will be imported on CAPEC view Insertion
     def files_to_insert_capec_view(self):
-        listOfFiles = os.listdir(self.import_path + "mitre_capec/splitted/")
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC view directory missing: {target_dir}")
+            return []
+        listOfFiles = os.listdir(target_dir)
         pattern = "*.json"
         view_files = []
         for entry in listOfFiles:
             if fnmatch.fnmatch(entry, pattern):
                 if entry.startswith("capec_view"):
-                    view_files.append("mitre_capec/splitted/" + entry)
+                    view_files.append(os.path.join("mitre_capec", "splitted", entry))
                 else:
                     continue
 
         return view_files
+
+    # ---------------- Direct ingestion helpers ----------------
+    def _load_json(self, rel_path):
+        path = os.path.join(self.import_path, rel_path)
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _chunked(self, items, size=BATCH_SIZE):
+        for i in range(0, len(items), size):
+            yield items[i:i+size]
+
+    def direct_insert_references(self):
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC reference directory missing: {target_dir}")
+            return
+        files = [f for f in os.listdir(target_dir) if f.startswith("capec_reference") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CAPEC reference files found for direct ingest.")
+            return
+        cypher = """
+        UNWIND $batch AS ref
+        MERGE (r:External_Reference_ID {Reference_ID: ref.Reference_ID})
+          SET r.Author = ref.Author,
+              r.Title = ref.Title,
+              r.Publication_Year = ref.Publication_Year,
+              r.Publication_Month = ref.Publication_Month,
+              r.Publisher = ref.Publisher
+        """
+        with self.driver.session() as session:
+            for fname in tqdm(files, desc="CAPEC reference files", unit="file"):
+                data = self._load_json(os.path.join("mitre_capec", "splitted", fname))
+                total_batches = math.ceil(len(data) / BATCH_SIZE) if data else 0
+                for batch in tqdm(self._chunked(data), total=total_batches, leave=False, desc=f"CAPEC ref {fname}", unit="batch"):
+                    session.run(cypher, batch=batch)
+        logger.info("CAPEC references inserted via direct ingest.")
+
+    def direct_insert_attack_patterns(self):
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC attack directory missing: {target_dir}")
+            return
+        files = [f for f in os.listdir(target_dir) if f.startswith("capec_attack_pattern") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CAPEC attack pattern files found for direct ingest.")
+            return
+
+        def simplify(item):
+            rel_w = item.get("Related_Weaknesses", {}).get("Related_Weakness", [])
+            if isinstance(rel_w, dict):
+                rel_w = [rel_w]
+            rel_w_ids = [rw.get("CWE_ID") for rw in rel_w if rw.get("CWE_ID")]
+            desc = item.get("Description")
+            if isinstance(desc, dict):
+                desc = str(desc.get("xhtml:p") or desc)
+            return {
+                "id": item.get("ID"),
+                "name": item.get("Name"),
+                "abstraction": item.get("Abstraction"),
+                "status": item.get("Status"),
+                "description": desc if desc is None or isinstance(desc, str) else str(desc),
+                "likelihood": item.get("Likelihood_Of_Attack"),
+                "severity": item.get("Typical_Severity"),
+                "related_weakness_ids": rel_w_ids,
+            }
+
+        cypher = """
+        UNWIND $batch AS ap
+        WITH ap WHERE ap.id IS NOT NULL
+        MERGE (c:CAPEC {Name: 'CAPEC-' + ap.id})
+          SET c.Title = ap.name,
+              c.Abstraction = ap.abstraction,
+              c.Status = ap.status,
+              c.Description = ap.description,
+              c.Likelihood_Of_Attack = ap.likelihood,
+              c.Typical_Severity = ap.severity
+        FOREACH (cw IN ap.related_weakness_ids |
+          MERGE (w:CWE {Name: 'CWE-' + cw})
+          MERGE (c)-[:Related_Weakness]->(w))
+        """
+        with self.driver.session() as session:
+            for fname in tqdm(files, desc="CAPEC attack pattern files", unit="file"):
+                raw = self._load_json(os.path.join("mitre_capec", "splitted", fname))
+                simplified = [simplify(item) for item in raw]
+                total_batches = math.ceil(len(simplified) / BATCH_SIZE) if simplified else 0
+                for batch in tqdm(self._chunked(simplified), total=total_batches, leave=False, desc=f"CAPEC attack {fname}", unit="batch"):
+                    session.run(cypher, batch=batch)
+        logger.info("CAPEC attack patterns inserted via direct ingest.")
+
+    def direct_insert_categories(self):
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC category directory missing: {target_dir}")
+            return
+        files = [f for f in os.listdir(target_dir) if f.startswith("capec_category") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CAPEC category files found for direct ingest.")
+            return
+        cypher = """
+        UNWIND $batch AS cat
+        WITH cat WHERE cat.id IS NOT NULL
+        MERGE (c:CAPEC_CATEGORY {ID: cat.id})
+          SET c.Name = cat.name,
+              c.Status = cat.status,
+              c.Description = cat.description
+        """
+        with self.driver.session() as session:
+            for fname in tqdm(files, desc="CAPEC category files", unit="file"):
+                raw = self._load_json(os.path.join("mitre_capec", "splitted", fname))
+                simplified = [{"id": i.get("ID"), "name": i.get("Name"), "status": i.get("Status"), "description": i.get("Description")} for i in raw]
+                total_batches = math.ceil(len(simplified) / BATCH_SIZE) if simplified else 0
+                for batch in tqdm(self._chunked(simplified), total=total_batches, leave=False, desc=f"CAPEC cat {fname}", unit="batch"):
+                    session.run(cypher, batch=batch)
+        logger.info("CAPEC categories inserted via direct ingest.")
+
+    def direct_insert_views(self):
+        target_dir = os.path.join(self.import_path, "mitre_capec", "splitted")
+        if not os.path.exists(target_dir):
+            logger.warning(f"CAPEC view directory missing: {target_dir}")
+            return
+        files = [f for f in os.listdir(target_dir) if f.startswith("capec_view") and f.endswith(".json")]
+        if not files:
+            logger.warning("No CAPEC view files found for direct ingest.")
+            return
+        cypher = """
+        UNWIND $batch AS v
+        WITH v WHERE v.id IS NOT NULL
+        MERGE (view:CAPEC_VIEW {ID: v.id})
+          SET view.Name = v.name,
+              view.Status = v.status,
+              view.Description = v.description
+        """
+        with self.driver.session() as session:
+            for fname in tqdm(files, desc="CAPEC view files", unit="file"):
+                raw = self._load_json(os.path.join("mitre_capec", "splitted", fname))
+                simplified = [{"id": i.get("ID"), "name": i.get("Name"), "status": i.get("Status"), "description": i.get("Description")} for i in raw]
+                total_batches = math.ceil(len(simplified) / BATCH_SIZE) if simplified else 0
+                for batch in tqdm(self._chunked(simplified), total=total_batches, leave=False, desc=f"CAPEC view {fname}", unit="batch"):
+                    session.run(cypher, batch=batch)
+        logger.info("CAPEC views inserted via direct ingest.")

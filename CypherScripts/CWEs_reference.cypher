@@ -1,8 +1,8 @@
 // Insert CWEs Catalog - Cypher Script
 
-UNWIND [cweReferenceFilesToImport] AS files
+UNWIND $cweReferenceFilesToImport AS file
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS reference RETURN reference',
+  'CALL apoc.load.json($file) YIELD value AS reference RETURN reference',
   '
     // Insert External References for CWEs
     MERGE (r:External_Reference_CWE {Reference_ID: reference.Reference_ID})
@@ -11,6 +11,6 @@ CALL apoc.periodic.iterate(
       r.Edition = reference.Edition, r.URL = reference.URL,
       r.Publication_Year = reference.Publication_Year, r.Publisher = reference.Publisher
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

@@ -1,9 +1,9 @@
 // ------------------------------------------------------------------------
 // Insert Categories for CAPECs
-UNWIND [capecCategoryFilesToImport] AS files
+UNWIND $capecCategoryFilesToImport AS file
 
 CALL apoc.periodic.iterate(
-  'CALL apoc.load.json($files) YIELD value AS category RETURN category',
+  'CALL apoc.load.json($file) YIELD value AS category RETURN category',
   '
     MERGE (c:CAPEC {Name: "CAPEC-" + category.ID})
     SET c.Extended_Name = category.Name,
@@ -29,6 +29,6 @@ CALL apoc.periodic.iterate(
       SET rel.Section = categoryExReference.Section
     )
   ',
-  {batchSize:200, params: {files:files}}
+  {batchSize:200, params: {file:file}}
 ) YIELD batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics
     RETURN batches,total,timeTaken,committedOperations,failedOperations,failedBatches,retries,errorMessages,batch,operations,wasTerminated,failedParams,updateStatistics;

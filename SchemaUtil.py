@@ -1,5 +1,6 @@
 from fileType import FileType
 from Util import Util
+from loguru import logger
 
 class SchemaUtil:
 
@@ -12,10 +13,10 @@ class SchemaUtil:
         query = """CALL apoc.periodic.iterate('MATCH (n) RETURN n', 'DETACH DELETE n', {batchSize:2000})"""
         session = self.driver.session()
         session.run(query)
-        print("\nPrevious Data have been deleted.")
+        logger.info("Previous data have been deleted.")
 
         self.clearSchema()
-        print("\nDatabase is clear and ready for imports.")
+        logger.info("Database is clear and ready for imports.")
 
     # Clear Schema
     def clearSchema(self):
@@ -23,7 +24,7 @@ class SchemaUtil:
         query = """CALL apoc.schema.assert({}, {}, true)"""
         session = self.driver.session()
         session.run(query)
-        print("\nPrevious Schema has been deleted.")
+        logger.info("Previous schema has been deleted.")
 
     # Constraints and Indexes
     def schema_script(self):
@@ -31,4 +32,4 @@ class SchemaUtil:
         query = """CALL apoc.cypher.runSchemaFile("ConstraintsIndexes.cypher")"""
         session = self.driver.session()
         session.run(query)
-        print("\nSchema with Constraints and Indexes insertion completed.")
+        logger.info("Schema with constraints and indexes insertion completed.")
